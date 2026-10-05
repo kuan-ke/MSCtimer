@@ -123,12 +123,6 @@
     roomListEl = el('div', 'admin-user-list');
     roomsRow.appendChild(roomListEl);
     panel.appendChild(roomsRow);
-
-    // 一鍵匯出目前房間所有計時
-    const exportBtn = el('button', 'top-btn', '📋 匯出目前房間計時');
-    exportBtn.title = '把這間房間目前所有進行中的 CH 整理成文字，並複製到剪貼簿';
-    exportBtn.addEventListener('click', exportTimers);
-    panel.appendChild(exportBtn);
     const topBar = document.querySelector('.top-bar');
     topBar.parentNode.insertBefore(panel, topBar.nextSibling);
 
@@ -140,6 +134,15 @@
     });
     const conn = document.getElementById('connStatus');
     conn.parentNode.insertBefore(editSelfBtn, conn);
+
+    // 匯出目前房間計時：放在右上角「子母畫面」按鈕左邊（只有管理者看得到）
+    const exportBtn = el('button', 'top-btn hidden', '📋 匯出計時');
+    exportBtn.id = 'exportBtn';
+    exportBtn.title = '把這間房間目前所有進行中的 CH 整理成文字，並複製到剪貼簿';
+    exportBtn.addEventListener('click', exportTimers);
+    const pip = document.getElementById('pipBtn');
+    pip.parentNode.insertBefore(exportBtn, pip);
+    A.exportBtn = exportBtn;
 
     clearLogBtn = el('button', 'top-btn hidden', '清空紀錄');
     clearLogBtn.title = '清空全部操作紀錄';
@@ -184,6 +187,7 @@
     panel.classList.remove('hidden');
     editSelfBtn.classList.remove('hidden');
     clearLogBtn.classList.remove('hidden');
+    if (A.exportBtn) A.exportBtn.classList.remove('hidden');
     logListEl.querySelectorAll('.log-row').forEach((row) => addDeleteBtn(row, row.dataset.id));
     updateNicknameDisplay();
     renderUsers();
@@ -291,9 +295,9 @@
     A.socket.emit('joinRoom', { nickname: nicknameForRoom(password), password, clientId: myClientId });
   }
 
-  // ---------- 匯出計時 ----------
-  const STATE_LABEL = { appearing: '出現中', window: '重生區間', counting: '倒數中' };
-  const STATE_ORDER = { appearing: 0, window: 1, counting: 2 };
+  // ---------- 匯出計時（管理者專用） ----------
+  const EXPORT_STATE_LABEL = { appearing: '出現中', window: '重生區間', counting: '倒數中' };
+  const EXPORT_STATE_ORDER = { appearing: 0, window: 1, counting: 2 };
 
   function buildExportText() {
     const now = Date.now() + clockOffset;
@@ -316,10 +320,10 @@
         else if (ch.state === 'window') remain = `距最大值 ${formatMs(Math.max(0, maxMs - elapsed))}`;
         else remain = elapsed >= maxMs ? `已超過最大值 +${formatMs(elapsed - maxMs)}` : `距最大值 ${formatMs(maxMs - elapsed)}`;
         items.push({ idx, state: ch.state, spawnAt, text:
-          `  ${(STATE_LABEL[ch.state] || ch.state).padEnd(4, '　')}  ch.${String(idx + 1).padStart(2, ' ')}  出生 ${formatClock(spawnAt)}  ${remain}  （${ch.startedBy || '未知'}）` });
+          `  ${(EXPORT_STATE_LABEL[ch.state] || ch.state).padEnd(4, '　')}  ch.${String(idx + 1).padStart(2, ' ')}  出生 ${formatClock(spawnAt)}  ${remain}  （${ch.startedBy || '未知'}）` });
       });
       if (items.length === 0) return;
-      items.sort((a, b) => (STATE_ORDER[a.state] ?? 9) - (STATE_ORDER[b.state] ?? 9) || a.spawnAt - b.spawnAt);
+      items.sort((a, b) => (EXPORT_STATE_ORDER[a.state] ?? 9) - (EXPORT_STATE_ORDER[b.state] ?? 9) || a.spawnAt - b.spawnAt);
       lines.push(`■ ${tab.name}（${tab.minMinutes}～${tab.maxMinutes} 分）`);
       items.forEach((it) => lines.push(it.text));
       lines.push('');
