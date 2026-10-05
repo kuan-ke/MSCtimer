@@ -1,0 +1,16 @@
+{
+  "name": "msctimer",
+  "version": "1.0.0",
+  "description": "楓之谷｜團隊野王計時器（MSCtimer）：多人同步 CH 計時器",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
