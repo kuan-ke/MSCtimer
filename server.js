@@ -579,6 +579,15 @@ io.on('connection', (socket) => {
     cb({ code, count });
   });
 
+  // 文字版時間表：內容由瀏覽器依當地時間產生，這裡只負責檢查權限與寫操作紀錄
+  socket.on('exportTimersText', (cb) => {
+    if (typeof cb !== 'function') return;
+    const room = getRoom(socket);
+    if (!canTransferTimers(room)) return cb({ error: '只有隊長可以匯出計時' });
+    if (!socket.data.isAdmin) addLog(room, `隊長「${socket.data.nickname}」匯出了目前房間的時間表（文字）`, 'admin');
+    cb({ ok: true });
+  });
+
   socket.on('importTimers', ({ code } = {}, cb) => {
     if (typeof cb !== 'function') return;
     const room = getRoom(socket);

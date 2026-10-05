@@ -439,19 +439,99 @@ function downloadTextFile(name, text) {
 }
 
 // 匯出：不預覽，只確認一次；伺服器產生加密的匯入碼 → 下載 .txt 並複製到剪貼簿
-function exportTimers() {
-  askTimerPermission(() => {
-    if (!confirm('確定要匯出目前房間的計時嗎？\n（會下載一個 .txt 匯入檔，並把匯入碼複製到剪貼簿）')) return;
+function exportTimerKey() {
+  {
     socket.emit('exportTimers', async (res) => {
       if (!res || res.error) { showToast((res && res.error) || '匯出失敗'); return; }
       const d = new Date(Date.now() + clockOffset);
       const p2 = (n) => String(n).padStart(2, '0');
       const stamp = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}`;
       const fileText = `MSCtimer 計時匯入檔（請勿修改內容）\n匯出時間：${d.toLocaleString()}\n\n${res.code}\n`;
-      downloadTextFile(`MSCtimer計時_${stamp}.txt`, fileText);
+      downloadTextFile(`MSCtimer密鑰_${stamp}.txt`, fileText);
       const copied = await copyTextToClipboard(res.code);
       showToast(`已匯出 ${res.count} 個 CH 的計時${copied ? '（已下載檔案並複製匯入碼）' : '（已下載檔案）'}`);
     });
+  }
+}
+
+// 文字版時間表（一開始的版本）：依王分組，每隻王底下依「出現中 → 重生區間 → 倒數中」排序
+const EXPORT_STATE_LABEL = { appearing: '出現中', window: '重生區間', counting: '倒數中' };
+const EXPORT_STATE_ORDER = { appearing: 0, window: 1, counting: 2 };
+
+function buildTimerTable() {
+  const now = Date.now() + clockOffset;
+  const d = new Date(now);
+  const p2 = (n) => String(n).padStart(2, '0');
+  const stamp = `${d.getFullYear()}/${p2(d.getMonth() + 1)}/${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+  const fileStamp = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}`;
+  const lines = [`【楓之谷｜團隊野王計時器】房間 ${myRoomPassword || ''} 時間表`, `匯出時間：${stamp}`, ''];
+  let total = 0;
+  (tabs || []).forEach((tab) => {
+    const items = [];
+    tab.channels.forEach((ch, idx) => {
+      if (ch.state === 'idle' || ch.startTime === null) return;
+      const minMs = (ch.customMin ?? tab.minMinutes) * 60000;
+      const maxMs = (ch.customMax ?? tab.maxMinutes) * 60000;
+      const elapsed = now - ch.startTime;
+      const spawnAt = ch.startTime + minMs;
+      let remain;
+      if (ch.state === 'counting') remain = `距出生 ${formatMs(Math.max(0, minMs - elapsed))}`;
+      else if (ch.state === 'window') remain = `距最大值 ${formatMs(Math.max(0, maxMs - elapsed))}`;
+      else remain = elapsed >= maxMs ? `已超過最大值 +${formatMs(elapsed - maxMs)}` : `距最大值 ${formatMs(maxMs - elapsed)}`;
+      items.push({ state: ch.state, spawnAt, text:
+        `  ${(EXPORT_STATE_LABEL[ch.state] || ch.state).padEnd(4, '　')}  ch.${String(idx + 1).padStart(2, ' ')}  出生 ${formatClock(spawnAt)}  ${remain}  （${ch.startedBy || '未知'}）` });
+    });
+    if (items.length === 0) return;
+    items.sort((a, b) => (EXPORT_STATE_ORDER[a.state] ?? 9) - (EXPORT_STATE_ORDER[b.state] ?? 9) || a.spawnAt - b.spawnAt);
+    lines.push(`■ ${tab.name}（${tab.minMinutes}～${tab.maxMinutes} 分）`);
+    items.forEach((it) => lines.push(it.text));
+    lines.push('');
+    total += items.length;
+  });
+  lines.push(total === 0 ? '目前沒有進行中的 CH' : `共 ${total} 個進行中的 CH`);
+  return { text: lines.join('\n') + '\n', total, fileStamp };
+}
+
+function exportTimerTable() {
+  {
+    socket.emit('exportTimersText', async (res) => {
+      if (!res || res.error) { showToast((res && res.error) || '匯出失敗'); return; }
+      const { text, total, fileStamp } = buildTimerTable();
+      downloadTextFile(`MSCtimer時間表_${fileStamp}.txt`, text);
+      const copied = await copyTextToClipboard(text);
+      showToast(`已匯出時間表（${total} 個 CH）${copied ? '，並複製到剪貼簿' : ''}`);
+    });
+  }
+}
+
+// 「📋 匯出計時」：先檢查是不是隊長，再讓使用者選要匯出哪一種（選擇本身就是確認，不再另外詢問）
+function openExportChooser() {
+  askTimerPermission(() => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal export-modal">
+        <h3>📋 匯出計時</h3>
+        <p class="modal-note">要匯出目前房間的哪一種計時？會下載一個 .txt 檔並複製到剪貼簿。</p>
+        <button class="export-choice" data-kind="key">
+          <span class="export-choice-title">🔐 匯出密鑰</span>
+          <span class="export-choice-desc">加密的匯入碼，可用「📥 匯入計時」匯入到任何房間</span>
+        </button>
+        <button class="export-choice" data-kind="table">
+          <span class="export-choice-title">📝 匯出時間表</span>
+          <span class="export-choice-desc">一目了然的文字時間表，方便貼到 Discord／LINE（只能看，不能匯入）</span>
+        </button>
+        <div class="modal-buttons"><button class="btn-secondary export-cancel">取消</button></div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.querySelector('.export-cancel').addEventListener('click', close);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    overlay.querySelectorAll('.export-choice').forEach((b) => b.addEventListener('click', () => {
+      close();
+      if (b.dataset.kind === 'key') exportTimerKey();
+      else exportTimerTable();
+    }));
   });
 }
 
@@ -499,7 +579,7 @@ function importTimers() {
 
 {
   const exportBtnEl = document.getElementById('exportBtn');
-  if (exportBtnEl) exportBtnEl.addEventListener('click', exportTimers);
+  if (exportBtnEl) exportBtnEl.addEventListener('click', openExportChooser);
   const importBtnEl = document.getElementById('importBtn');
   if (importBtnEl) importBtnEl.addEventListener('click', importTimers);
 }
