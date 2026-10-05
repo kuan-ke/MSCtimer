@@ -135,15 +135,6 @@
     const conn = document.getElementById('connStatus');
     conn.parentNode.insertBefore(editSelfBtn, conn);
 
-    // 匯出目前房間計時：放在右上角「子母畫面」按鈕左邊（只有管理者看得到）
-    const exportBtn = el('button', 'top-btn hidden', '📋 匯出計時');
-    exportBtn.id = 'exportBtn';
-    exportBtn.title = '把這間房間目前所有進行中的 CH 整理成文字，並複製到剪貼簿';
-    exportBtn.addEventListener('click', exportTimers);
-    const pip = document.getElementById('pipBtn');
-    pip.parentNode.insertBefore(exportBtn, pip);
-    A.exportBtn = exportBtn;
-
     clearLogBtn = el('button', 'top-btn hidden', '清空紀錄');
     clearLogBtn.title = '清空全部操作紀錄';
     clearLogBtn.addEventListener('click', () => {
@@ -187,7 +178,6 @@
     panel.classList.remove('hidden');
     editSelfBtn.classList.remove('hidden');
     clearLogBtn.classList.remove('hidden');
-    if (A.exportBtn) A.exportBtn.classList.remove('hidden');
     logListEl.querySelectorAll('.log-row').forEach((row) => addDeleteBtn(row, row.dataset.id));
     updateNicknameDisplay();
     renderUsers();
@@ -293,97 +283,6 @@
     myRoomPassword = password;
     manualJoinPending = true;
     A.socket.emit('joinRoom', { nickname: nicknameForRoom(password), password, clientId: myClientId });
-  }
-
-  // ---------- 匯出計時（管理者專用） ----------
-  const EXPORT_STATE_LABEL = { appearing: '出現中', window: '重生區間', counting: '倒數中' };
-  const EXPORT_STATE_ORDER = { appearing: 0, window: 1, counting: 2 };
-
-  function buildExportText() {
-    const now = Date.now() + clockOffset;
-    const d = new Date(now);
-    const p2 = (n) => String(n).padStart(2, '0');
-    const stamp = `${d.getFullYear()}/${p2(d.getMonth() + 1)}/${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
-    const lines = [`【楓之谷｜團隊野王計時器】房間 ${myRoomPassword || ''} 計時匯出`, `匯出時間：${stamp}`, ''];
-    let total = 0;
-
-    (tabs || []).forEach((tab) => {
-      const items = [];
-      tab.channels.forEach((ch, idx) => {
-        if (ch.state === 'idle' || ch.startTime === null) return;
-        const minMs = (ch.customMin ?? tab.minMinutes) * 60000;
-        const maxMs = (ch.customMax ?? tab.maxMinutes) * 60000;
-        const elapsed = now - ch.startTime;
-        const spawnAt = ch.startTime + minMs;
-        let remain;
-        if (ch.state === 'counting') remain = `距出生 ${formatMs(Math.max(0, minMs - elapsed))}`;
-        else if (ch.state === 'window') remain = `距最大值 ${formatMs(Math.max(0, maxMs - elapsed))}`;
-        else remain = elapsed >= maxMs ? `已超過最大值 +${formatMs(elapsed - maxMs)}` : `距最大值 ${formatMs(maxMs - elapsed)}`;
-        items.push({ idx, state: ch.state, spawnAt, text:
-          `  ${(EXPORT_STATE_LABEL[ch.state] || ch.state).padEnd(4, '　')}  ch.${String(idx + 1).padStart(2, ' ')}  出生 ${formatClock(spawnAt)}  ${remain}  （${ch.startedBy || '未知'}）` });
-      });
-      if (items.length === 0) return;
-      items.sort((a, b) => (EXPORT_STATE_ORDER[a.state] ?? 9) - (EXPORT_STATE_ORDER[b.state] ?? 9) || a.spawnAt - b.spawnAt);
-      lines.push(`■ ${tab.name}（${tab.minMinutes}～${tab.maxMinutes} 分）`);
-      items.forEach((it) => lines.push(it.text));
-      lines.push('');
-      total += items.length;
-    });
-
-    if (total === 0) lines.push('目前沒有進行中的 CH');
-    else lines.push(`共 ${total} 個進行中的 CH`);
-    return { text: lines.join('\n'), stamp };
-  }
-
-  async function copyText(text, textarea) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch (e) {
-      try { textarea.focus(); textarea.select(); return document.execCommand('copy'); } catch (e2) { return false; }
-    }
-  }
-
-  function exportTimers() {
-    if (!joined) { showToast('請先進入一個房間'); return; }
-    const { text, stamp } = buildExportText();
-
-    const overlay = el('div', 'modal-overlay');
-    const modal = el('div', 'modal');
-    modal.style.width = 'min(640px, calc(100vw - 32px))';
-    modal.appendChild(el('h3', '', '📋 目前房間計時'));
-    const ta = el('textarea');
-    ta.value = text;
-    ta.readOnly = true;
-    ta.style.cssText = 'width:100%;height:50vh;box-sizing:border-box;background:#0f172a;color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px;font-family:Consolas,ui-monospace,monospace;font-size:12px;line-height:1.5;white-space:pre;';
-    modal.appendChild(ta);
-    const btns = el('div', 'modal-buttons');
-    btns.style.marginTop = '10px';
-    const copyBtn = el('button', 'btn-primary', '複製');
-    copyBtn.addEventListener('click', async () => showToast((await copyText(text, ta)) ? '已複製到剪貼簿' : '複製失敗，請手動全選複製'));
-    const dlBtn = el('button', 'btn-secondary', '下載 .txt');
-    dlBtn.addEventListener('click', () => {
-      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `計時_${myRoomPassword || 'room'}_${stamp.replace(/[\/: ]/g, '')}.txt`;
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-    });
-    const closeBtn = el('button', 'btn-secondary', '關閉');
-    const close = () => overlay.remove();
-    closeBtn.addEventListener('click', close);
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-    btns.appendChild(dlBtn);
-    btns.appendChild(closeBtn);
-    btns.appendChild(copyBtn);
-    modal.appendChild(btns);
-    overlay.appendChild(modal);
-    document.body.appendChild(overlay);
-
-    // 打開的同時自動複製一次
-    copyText(text, ta).then((ok) => showToast(ok ? '已複製到剪貼簿' : '請按「複製」或手動全選複製'));
   }
 
   function normalize(n) { return (n || '').trim().toLowerCase(); }

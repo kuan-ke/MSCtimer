@@ -407,6 +407,103 @@ function renderCaptainInfo() {
   }
 }
 
+// ---------- 計時匯出 / 匯入（按鈕大家都看得到，只有隊長能用） ----------
+function askTimerPermission(onOk) {
+  if (!joined) { showToast('請先進入房間'); return; }
+  socket.emit('timerTransfer:perm', (res) => {
+    if (res && res.ok) onOk();
+    else showToast('只有隊長可以使用匯入／匯出計時');
+  });
+}
+
+async function copyTextToClipboard(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* fall through */ }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  } catch (e) { return false; }
+}
+
+function downloadTextFile(name, text) {
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+
+// 匯出：不預覽，只確認一次；伺服器產生加密的匯入碼 → 下載 .txt 並複製到剪貼簿
+function exportTimers() {
+  askTimerPermission(() => {
+    if (!confirm('確定要匯出目前房間的計時嗎？\n（會下載一個 .txt 匯入檔，並把匯入碼複製到剪貼簿）')) return;
+    socket.emit('exportTimers', async (res) => {
+      if (!res || res.error) { showToast((res && res.error) || '匯出失敗'); return; }
+      const d = new Date(Date.now() + clockOffset);
+      const p2 = (n) => String(n).padStart(2, '0');
+      const stamp = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}`;
+      const fileText = `MSCtimer 計時匯入檔（請勿修改內容）\n匯出時間：${d.toLocaleString()}\n\n${res.code}\n`;
+      downloadTextFile(`MSCtimer計時_${stamp}.txt`, fileText);
+      const copied = await copyTextToClipboard(res.code);
+      showToast(`已匯出 ${res.count} 個 CH 的計時${copied ? '（已下載檔案並複製匯入碼）' : '（已下載檔案）'}`);
+    });
+  });
+}
+
+// 匯入：貼上匯入碼或選擇 .txt 檔 → 確認 → 取代這間房間目前所有的計時
+function importTimers() {
+  askTimerPermission(() => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal import-modal">
+        <h3>📥 匯入計時</h3>
+        <p class="modal-note">貼上本網站匯出的匯入碼，或選擇匯出的 .txt 檔。匯入後會<b>取代這間房間目前所有的計時</b>，已經過期的 CH 不會匯入。</p>
+        <textarea class="import-text" placeholder="在這裡貼上匯入碼（MSCT1. 開頭）"></textarea>
+        <label class="import-file-label">或選擇檔案：<input type="file" accept=".txt,text/plain" class="import-file" /></label>
+        <div class="modal-buttons">
+          <button class="btn-secondary import-cancel">取消</button>
+          <button class="btn-primary import-ok">匯入</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const ta = overlay.querySelector('.import-text');
+    const close = () => overlay.remove();
+    overlay.querySelector('.import-cancel').addEventListener('click', close);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    overlay.querySelector('.import-file').addEventListener('change', (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = () => { ta.value = String(reader.result || ''); };
+      reader.readAsText(f);
+    });
+    overlay.querySelector('.import-ok').addEventListener('click', () => {
+      const m = ta.value.match(/MSCT1\.[A-Za-z0-9_-]+/);
+      if (!m) { showToast('找不到匯入碼，請貼上本網站匯出的內容或選擇匯出檔'); return; }
+      if (!confirm('匯入後會取代這間房間目前所有的計時，確定要匯入嗎？')) return;
+      socket.emit('importTimers', { code: m[0] }, (res) => {
+        if (!res || res.error) { showToast((res && res.error) || '匯入失敗'); return; }
+        close();
+        showToast(`已匯入 ${res.count} 個 CH 的計時`);
+      });
+    });
+    setTimeout(() => ta.focus(), 50);
+  });
+}
+
+{
+  const exportBtnEl = document.getElementById('exportBtn');
+  if (exportBtnEl) exportBtnEl.addEventListener('click', exportTimers);
+  const importBtnEl = document.getElementById('importBtn');
+  if (importBtnEl) importBtnEl.addEventListener('click', importTimers);
+}
+
 // ---------- 網站版本：網頁開著期間伺服器更新了，提示重新整理 ----------
 let knownSiteVersion = null;
 socket.on('server:version', (v) => {

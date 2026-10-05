@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const crypto = require('crypto');
+const zlib = require('zlib');
 const { Server } = require('socket.io');
 const persist = require('./persist');
 
@@ -23,6 +24,34 @@ const EMPTY_ROOM_TTL_MS = 6 * 60 * 60 * 1000;
 // 管理者密鑰：用來讓網站擁有者強制修改 / 禁止 / 移除別人（只對管理者「目前所在的房間」生效）。
 // 建議在 Render 的環境變數設定 ADMIN_KEY，不要用預設值。
 const ADMIN_KEY = process.env.ADMIN_KEY || 'change-me-admin-key';
+
+// ---------- 計時匯出 / 匯入的加密 ----------
+// 匯入碼用 AES-256-GCM 加密，金鑰只存在伺服器（預設由 ADMIN_KEY 推導；也可另外設定環境變數 EXPORT_SECRET）。
+// 沒有金鑰就無法解讀或竄改；改了 ADMIN_KEY / EXPORT_SECRET 之後，舊的匯入碼會失效。
+const EXPORT_KEY = crypto.createHash('sha256').update('msctimer-export|' + (process.env.EXPORT_SECRET || ADMIN_KEY)).digest();
+const EXPORT_PREFIX = 'MSCT1.';
+const MAX_IMPORT_CODE_LEN = 200000;
+
+function encryptExport(obj) {
+  const plain = zlib.deflateRawSync(Buffer.from(JSON.stringify(obj), 'utf8'));
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', EXPORT_KEY, iv);
+  const enc = Buffer.concat([cipher.update(plain), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return EXPORT_PREFIX + Buffer.concat([iv, tag, enc]).toString('base64url');
+}
+
+function decryptExport(code) {
+  if (typeof code !== 'string' || code.length > MAX_IMPORT_CODE_LEN) throw new Error('bad');
+  const m = code.match(/MSCT1\.([A-Za-z0-9_-]+)/);
+  if (!m) throw new Error('bad');
+  const buf = Buffer.from(m[1], 'base64url');
+  if (buf.length < 29) throw new Error('bad');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', EXPORT_KEY, buf.subarray(0, 12));
+  decipher.setAuthTag(buf.subarray(12, 28));
+  const plain = Buffer.concat([decipher.update(buf.subarray(28)), decipher.final()]);
+  return JSON.parse(zlib.inflateRawSync(plain, { maxOutputLength: 5 * 1024 * 1024 }).toString('utf8'));
+}
 
 const fs = require('fs');
 
@@ -516,6 +545,97 @@ io.on('connection', (socket) => {
   });
 
   // 產生一組隨機房間密碼（符合規則，且不會跟目前已存在的房間重複）
+  // ---------- 計時匯出 / 匯入（隊長才能用；隱身的管理者也能用，但不寫進操作紀錄） ----------
+  function canTransferTimers(room) {
+    return !!room && (socket.data.isAdmin || isCaptain(room, socket));
+  }
+
+  // 先問一下有沒有權限（按鈕大家都看得到，按下去才檢查）
+  socket.on('timerTransfer:perm', (cb) => {
+    if (typeof cb !== 'function') return;
+    const room = getRoom(socket);
+    cb({ ok: canTransferTimers(room) });
+  });
+
+  socket.on('exportTimers', (cb) => {
+    if (typeof cb !== 'function') return;
+    const room = getRoom(socket);
+    if (!canTransferTimers(room)) return cb({ error: '只有隊長可以匯出計時' });
+    let count = 0;
+    const out = { v: 1, t: Date.now(), tabs: [] };
+    room.tabs.forEach((tab) => {
+      const ch = [];
+      tab.channels.forEach((c, idx) => {
+        if (c.state === 'idle' || c.startTime === null) return;
+        ch.push([idx, c.startTime, c.startedBy || null, c.customMin ?? null, c.customMax ?? null]);
+      });
+      if (ch.length === 0) return;
+      count += ch.length;
+      // 預設王用圖片檔名對應（不同房間的分頁編號不一樣），自訂分頁用名稱對應
+      out.tabs.push({ k: tab.locked && tab.image ? 'p:' + tab.image : 'c:' + tab.name, n: tab.name, mn: tab.minMinutes, mx: tab.maxMinutes, ch });
+    });
+    const code = encryptExport(out);
+    if (!socket.data.isAdmin) addLog(room, `隊長「${socket.data.nickname}」匯出了目前房間的計時（${count} 個 CH）`, 'admin');
+    cb({ code, count });
+  });
+
+  socket.on('importTimers', ({ code } = {}, cb) => {
+    if (typeof cb !== 'function') return;
+    const room = getRoom(socket);
+    if (!canTransferTimers(room)) return cb({ error: '只有隊長可以匯入計時' });
+    if (guardMuted(room, socket)) return cb({ error: '您已被禁止操作' });
+    let data;
+    try { data = decryptExport(code); } catch (e) { return cb({ error: '匯入碼無效或已損毀（只能匯入本網站匯出的計時）' }); }
+    if (!data || data.v !== 1 || !Array.isArray(data.tabs)) return cb({ error: '匯入碼格式不正確' });
+
+    const now = Date.now();
+    const DAY = 24 * 60 * 60 * 1000;
+    // 匯入 = 取代整間房間目前的計時
+    room.tabs.forEach((t) => { t.channels = Array.from({ length: CHANNEL_COUNT }, createChannel); });
+
+    let count = 0;
+    data.tabs.slice(0, 100).forEach((it) => {
+      if (!it || typeof it.k !== 'string' || !Array.isArray(it.ch)) return;
+      let tab;
+      if (it.k.startsWith('p:')) {
+        tab = room.tabs.find((t) => t.locked && t.image === it.k.slice(2));
+      } else {
+        const name = String(it.n || it.k.slice(2) || '').trim().slice(0, 30);
+        if (!name) return;
+        tab = room.tabs.find((t) => !t.locked && t.name === name);
+        if (!tab) {
+          const mn = Number(it.mn) > 0 ? Number(it.mn) : 45;
+          const mx = Math.max(mn, Number(it.mx) > 0 ? Number(it.mx) : 60);
+          tab = createTab(name, mn, mx, null, false);
+          room.tabs.push(tab);
+        }
+      }
+      if (!tab) return;
+      it.ch.forEach((row) => {
+        if (!Array.isArray(row)) return;
+        const [idx, startTime, startedBy, cMin, cMax] = row;
+        if (!Number.isInteger(idx) || idx < 0 || idx >= CHANNEL_COUNT) return;
+        if (!Number.isFinite(startTime) || startTime > now + 7 * DAY || startTime < now - 30 * DAY) return;
+        const ch = createChannel();
+        ch.startTime = startTime;
+        ch.startedBy = typeof startedBy === 'string' ? startedBy.slice(0, 20) : null;
+        ch.customMin = Number.isFinite(cMin) && cMin > 0 ? cMin : null;
+        ch.customMax = Number.isFinite(cMax) && cMax > 0 ? cMax : null;
+        const minMs = (ch.customMin ?? tab.minMinutes) * 60000;
+        const maxMs = (ch.customMax ?? tab.maxMinutes) * 60000;
+        const elapsed = now - startTime;
+        if (elapsed >= maxMs + APPEAR_HOLD_MS) return; // 已經過期的不匯入（維持待機）
+        ch.state = stateFor(elapsed, minMs, maxMs);
+        tab.channels[idx] = ch;
+        count++;
+      });
+    });
+
+    broadcastState(room);
+    if (!socket.data.isAdmin) addLog(room, `隊長「${socket.data.nickname}」匯入了計時（${count} 個 CH，取代原本的計時）`, 'admin');
+    cb({ ok: true, count });
+  });
+
   socket.on('generateRoomPassword', (cb) => {
     if (typeof cb !== 'function') return;
     const CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
