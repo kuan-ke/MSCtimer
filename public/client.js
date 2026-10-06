@@ -475,11 +475,11 @@ function buildTimerTable() {
       const elapsed = now - ch.startTime;
       const spawnAt = ch.startTime + minMs;
       let remain;
-      if (ch.state === 'counting') remain = `距出生 ${formatMs(Math.max(0, minMs - elapsed))}`;
+      if (ch.state === 'counting') remain = `距重生 ${formatMs(Math.max(0, minMs - elapsed))}`;
       else if (ch.state === 'window') remain = `距最大值 ${formatMs(Math.max(0, maxMs - elapsed))}`;
       else remain = elapsed >= maxMs ? `已超過最大值 +${formatMs(elapsed - maxMs)}` : `距最大值 ${formatMs(maxMs - elapsed)}`;
       items.push({ state: ch.state, spawnAt, text:
-        `  ${(EXPORT_STATE_LABEL[ch.state] || ch.state).padEnd(4, '　')}  ch.${String(idx + 1).padStart(2, ' ')}  出生 ${formatClock(spawnAt)}  ${remain}  （${ch.startedBy || '未知'}）` });
+        `  ${(EXPORT_STATE_LABEL[ch.state] || ch.state).padEnd(4, '　')}  ch.${String(idx + 1).padStart(2, ' ')}  重生 ${formatClock(spawnAt)}  ${remain}  （${ch.startedBy || '未知'}）` });
     });
     if (items.length === 0) return;
     items.sort((a, b) => (EXPORT_STATE_ORDER[a.state] ?? 9) - (EXPORT_STATE_ORDER[b.state] ?? 9) || a.spawnAt - b.spawnAt);
@@ -650,6 +650,7 @@ function handleState(data) {
   renderBossBanner();
   renderGrid();
   renderStatusPanel();
+  renderKillCount();
 }
 
 // 提醒：進入重生區間（較低的「噹」一聲）、進入出現中（較高的「噹」兩聲）
@@ -735,7 +736,27 @@ function formatDateTime(ms) {
 
 // ---------- Tabs ----------
 // 切換分頁後，主畫面與子母畫面（若開啟）都要一起刷新
+// 目前選的王的擊殺次數（主畫面圖例下方、子母畫面「本王／總頻道」左邊）
+function renderKillCount() {
+  const tab = getCurrentTab();
+  const text = `擊殺：${(tab && tab.killCount) || 0} 次`;
+  const main = document.getElementById('killCount');
+  if (main) main.textContent = text;
+  if (typeof pipDoc !== 'undefined' && pipDoc) {
+    const pipEl = pipDoc.getElementById('pipKillCount');
+    if (pipEl) pipEl.textContent = text;
+  }
+}
+
+socket.on('tab:meta', ({ tabId, killCount }) => {
+  const tab = tabs.find((t) => t.id === tabId);
+  if (!tab) return;
+  tab.killCount = killCount;
+  if (tabId === currentTabId) renderKillCount();
+});
+
 function refreshAfterTabSwitch() {
+  renderKillCount();
   renderTabs();
   renderRangePanel();
   renderBossBanner();
@@ -1051,6 +1072,7 @@ function renderStatusPanel() {
         tabImage: tab.image,
         channelIndex: idx,
         who: ch.startedBy || '未知',
+        standby: ch.standby || null,
         spawnAt
       };
 
@@ -1058,9 +1080,9 @@ function renderStatusPanel() {
         const remainingMs = Math.max(0, minMs - elapsed);
         countingRows.push({ ...base, remainingMs, timeText: formatMs(remainingMs), soon: remainingMs <= SOON_THRESHOLD_MS });
       } else if (ch.state === 'window') {
-        windowRows.push({ ...base, timeText: formatMs(Math.max(0, maxMs - elapsed)), inWindow: true });
+        windowRows.push({ ...base, timeText: formatMs(Math.max(0, maxMs - elapsed)), inWindow: true, maxAt: ch.startTime + maxMs });
       } else if (ch.state === 'appearing') {
-        appearingRows.push({ ...base, timeText: appearingText(maxMs, elapsed), overdue: elapsed >= maxMs });
+        appearingRows.push({ ...base, timeText: appearingText(maxMs, elapsed), overdue: elapsed >= maxMs, maxAt: ch.startTime + maxMs });
       }
     });
   });
@@ -1084,7 +1106,7 @@ function renderStatusPanel() {
 // 這樣王的小圖示不會每秒被重新建立（不會閃爍），內容真的變動時才整個重畫。
 function statusSignature(rows, showTabName, emptyText) {
   return (showTabName ? 'A' : 'B') + '|' + emptyText + '|' + rows.map((r) =>
-    [r.tabId, r.channelIndex, r.who, r.spawnAt, r.tabImage, r.tabName, r.soon ? 1 : 0, r.inWindow ? 1 : 0, r.overdue ? 1 : 0].join(',')
+    [r.tabId, r.channelIndex, r.who, r.spawnAt, r.tabImage, r.tabName, r.soon ? 1 : 0, r.inWindow ? 1 : 0, r.overdue ? 1 : 0, r.standby || '', r.maxAt || 0].join(',')
   ).join(';');
 }
 
@@ -1139,8 +1161,15 @@ function renderStatusColumn(container, rows, emptyText, showTabName) {
 
     const spawnSpan = doc.createElement('span');
     spawnSpan.className = 'status-spawn';
-    spawnSpan.title = '出生時間（最小值倒數結束的時刻）';
-    spawnSpan.textContent = `🕒${formatClock(r.spawnAt)}`;
+    if (r.maxAt) {
+      // 出現中欄（重生區間／出現中）：顯示最晚重生時間＝死亡時間＋最大值
+      spawnSpan.title = '最晚重生時間（死亡時間＋最大值）';
+      spawnSpan.textContent = `最晚 ${formatClock(r.maxAt)}`;
+    } else {
+      // 倒數中欄：重生時間＝死亡時間＋最小值
+      spawnSpan.title = '重生時間（死亡時間＋最小值，王最早會在這個時刻重生）';
+      spawnSpan.textContent = `重生 ${formatClock(r.spawnAt)}`;
+    }
     row.appendChild(spawnSpan);
 
     const timeSpan = doc.createElement('span');
@@ -1158,6 +1187,18 @@ function renderStatusColumn(container, rows, emptyText, showTabName) {
       socket.emit('channelKillNow', { tabId: r.tabId, channelIndex: r.channelIndex });
     });
     row.appendChild(killBtn);
+
+    // 待命：沒人待命時顯示「待命」，按下後變成按的人的暱稱；再按一次變回「待命」
+    const standbyBtn = doc.createElement('button');
+    standbyBtn.className = 'standby-btn' + (r.standby ? ' taken' : '');
+    standbyBtn.textContent = r.standby || '待命';
+    standbyBtn.title = r.standby ? `「${r.standby}」待命中，再按一次取消` : '按下表示你在這個 CH 待命';
+    standbyBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!ensureNickname()) return;
+      socket.emit('channelStandby', { tabId: r.tabId, channelIndex: r.channelIndex });
+    });
+    row.appendChild(standbyBtn);
 
     row.addEventListener('click', () => {
       currentTabId = r.tabId;
@@ -1398,7 +1439,7 @@ async function openPip() {
       <div class="panel active-panel" id="pipActivePanel">
         <div class="panel-title-row">
           <div class="panel-title">📋 進行中頻道</div>
-          <div class="view-toggle"><button data-view="boss">本王</button><button data-view="all">總頻道</button></div>
+          <div class="pip-title-right"><span class="kill-count" id="pipKillCount"></span><div class="view-toggle"><button data-view="boss">本王</button><button data-view="all">總頻道</button></div></div>
         </div>
         <div class="active-columns">
           <div class="active-sub-panel">

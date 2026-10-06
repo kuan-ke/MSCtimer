@@ -46,11 +46,14 @@
           <label>最大值(分)<input type="number" id="maxInput" min="1" /></label>
           <span class="range-hint" id="rangeHint">右鍵輸入死亡時間 或 中鍵輸入重生時間</span>
         </div>
-        <div class="legend">
-          <span class="legend-item"><span class="dot idle"></span>待機</span>
-          <span class="legend-item"><span class="dot counting"></span>倒數中</span>
-          <span class="legend-item"><span class="dot window"></span>重生區間</span>
-          <span class="legend-item"><span class="dot appearing"></span>出現中</span>
+        <div class="legend-wrap">
+          <div class="legend">
+            <span class="legend-item"><span class="dot idle"></span>待機</span>
+            <span class="legend-item"><span class="dot counting"></span>倒數中</span>
+            <span class="legend-item"><span class="dot window"></span>重生區間</span>
+            <span class="legend-item"><span class="dot appearing"></span>出現中</span>
+          </div>
+          <div id="killCount" class="kill-count" title="這隻王在這間房間被按「擊殺」的次數">擊殺：0 次</div>
         </div>
       </div>
 

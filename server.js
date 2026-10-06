@@ -125,7 +125,8 @@ function createChannel() {
     startTime: null,    // server epoch ms
     customMin: null,    // null = 使用分頁預設值
     customMax: null,
-    startedBy: null      // 是誰觸發這次倒數的暱稱
+    startedBy: null,     // 是誰觸發這次倒數的暱稱
+    standby: null        // 「待命」：按下待命的人的暱稱（null = 沒人待命）
   };
 }
 
@@ -138,6 +139,7 @@ function createTab(name, minMinutes, maxMinutes, image, locked) {
     maxMinutes: maxMinutes || 60,
     image: image || null,
     locked: !!locked, // 鎖定的分頁：無法刪除、無法修改最小值/最大值
+    killCount: 0,     // 這隻王被按「擊殺」的次數
     channels: Array.from({ length: CHANNEL_COUNT }, createChannel)
   };
 }
@@ -412,6 +414,7 @@ function tick() {
           ch.state = 'idle';
           ch.startTime = null;
           ch.startedBy = null;
+          ch.standby = null;
           changed.push({ tabId: tab.id, channelIndex: idx });
         } else {
           const target = stateFor(elapsed, minMs, maxMs);
@@ -862,11 +865,13 @@ io.on('connection', (socket) => {
       ch.state = 'counting';
       ch.startTime = Date.now();
       ch.startedBy = nickname;
+      ch.standby = null;
       addLog(room, `${nickname} 在「${tab.name}」啟動了 CH${channelIndex + 1} 倒數`, 'start');
     } else {
       ch.state = 'idle';
       ch.startTime = null;
       ch.startedBy = null;
+      ch.standby = null;
       addLog(room, `${nickname} 手動停止了「${tab.name}」CH${channelIndex + 1} 的倒數`, 'stop');
     }
     broadcastChannels(room, [{ tabId: tab.id, channelIndex }]); // 只送這一個 CH 的變化
@@ -887,8 +892,23 @@ io.on('connection', (socket) => {
     ch.state = 'counting';
     ch.startTime = Date.now();
     ch.startedBy = nickname;
+    ch.standby = null;
+    tab.killCount = (tab.killCount || 0) + 1;
     addLog(room, `${nickname} 擊殺了「${tab.name}」CH${channelIndex + 1}，重新開始倒數`, 'start');
     broadcastChannels(room, [{ tabId: tab.id, channelIndex }]); // 只送這一個 CH 的變化
+    io.to(room.id).emit('tab:meta', { tabId: tab.id, killCount: tab.killCount });
+  });
+
+  // ---------- 待命：沒人待命時按下 → 顯示按的人的暱稱；已有人待命時再按一次 → 變回「待命」 ----------
+  socket.on('channelStandby', ({ tabId, channelIndex } = {}) => {
+    const room = requireRoom();
+    if (!room) return;
+    const tab = findTab(room, tabId);
+    if (!tab) return;
+    const ch = tab.channels[channelIndex];
+    if (!ch || ch.state === 'idle') return;
+    ch.standby = ch.standby ? null : socket.data.nickname;
+    broadcastChannels(room, [{ tabId: tab.id, channelIndex }]);
   });
 
   // ---------- CH 右鍵：輸入王的「死亡時間」，從那個過去的時刻開始倒數 ----------
@@ -911,6 +931,7 @@ io.on('connection', (socket) => {
       ch.customMin = null;
       ch.customMax = null;
       ch.startedBy = null;
+      ch.standby = null;
       if (wasActive) {
         addLog(room, `${nickname} 透過右鍵重設了「${tab.name}」CH${channelIndex + 1}（恢復待機）`, 'stop');
         broadcastChannels(room, [{ tabId: tab.id, channelIndex }]); // 只送這一個 CH 的變化
@@ -933,6 +954,7 @@ io.on('connection', (socket) => {
     ch.state = 'counting';
     ch.startTime = deathMs;
     ch.startedBy = nickname;
+    ch.standby = null;
 
     const label = typeof deathTimeLabel === 'string' ? deathTimeLabel.slice(0, 10) : '';
     addLog(room, `${nickname} 回報「${tab.name}」CH${channelIndex + 1} 的死亡時間為 ${label}，開始倒數`, 'start');
@@ -965,6 +987,7 @@ io.on('connection', (socket) => {
     ch.startTime = spawnMs - tab.minMinutes * 60000;
     ch.state = stateFor(now - ch.startTime, tab.minMinutes * 60000, tab.maxMinutes * 60000);
     ch.startedBy = nickname;
+    ch.standby = null;
 
     const label = typeof spawnTimeLabel === 'string' ? spawnTimeLabel.slice(0, 20) : '';
     addLog(room, `${nickname} 設定「${tab.name}」CH${channelIndex + 1} 的重生時間為 ${label}，開始倒數`, 'start');
@@ -995,7 +1018,7 @@ function serializeRoom(room) {
     tabs: room.tabs.map((t) => {
       const ch = {};
       t.channels.forEach((c, i) => { if (c.state !== 'idle') ch[i] = c; });
-      return { id: t.id, name: t.name, minMinutes: t.minMinutes, maxMinutes: t.maxMinutes, image: t.image, locked: t.locked, ch };
+      return { id: t.id, name: t.name, minMinutes: t.minMinutes, maxMinutes: t.maxMinutes, image: t.image, locked: t.locked, kc: t.killCount || 0, ch };
     })
   };
 }
@@ -1013,6 +1036,7 @@ function restoreRoom(data) {
 
   const savedTabs = Array.isArray(data.tabs) ? data.tabs : [];
   const fillChannels = (tab, saved) => {
+    if (saved && Number.isFinite(saved.kc)) tab.killCount = saved.kc;
     if (!saved || !saved.ch) return;
     Object.entries(saved.ch).forEach(([i, c]) => {
       const idx = Number(i);

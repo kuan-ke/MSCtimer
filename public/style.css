@@ -806,3 +806,16 @@ body {
 .export-choice:hover { border-color: var(--accent); background: #15213a; }
 .export-choice-title { font-size: 15px; font-weight: 700; }
 .export-choice-desc { font-size: 12px; color: var(--text-dim); }
+
+/* 擊殺次數：主畫面在圖例下方，子母畫面在「本王／總頻道」左邊 */
+.legend-wrap { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; margin-left: auto; }
+.legend-wrap .legend { margin-left: 0; }
+.kill-count { font-size: 12px; font-weight: 700; color: #fca5a5; white-space: nowrap; }
+.pip-title-right { display: flex; align-items: center; gap: 8px; }
+.pip-root .kill-count { font-size: 11px; }
+
+/* 待命按鈕（擊殺右邊） */
+.standby-btn { flex-shrink: 0; border: 1px solid #475569; background: #1e293b; color: var(--text-dim); border-radius: 5px; padding: 2px 7px; font-size: 11px; cursor: pointer; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.standby-btn:hover { border-color: var(--accent); color: var(--text); }
+.standby-btn.taken { background: #14532d; border-color: #22c55e; color: #bbf7d0; font-weight: 700; }
+.status-row .status-spawn { white-space: nowrap; }
