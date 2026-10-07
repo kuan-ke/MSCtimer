@@ -37,6 +37,25 @@
 .log-del-btn { margin-left:auto; border:none; background:transparent; color:var(--text-faint); cursor:pointer; font-size:12px; padding:0 3px; flex-shrink:0; }
 .log-del-btn:hover { color:var(--danger); }
 .panel-title-row .top-btn { font-size:11px; padding:3px 8px; }
+.admin-stats-btn { border:1px solid #6d28d9; background:#2e1065; color:#ede9fe; border-radius:6px; padding:2px 8px; font-size:12px; font-weight:700; cursor:pointer; }
+.admin-stats-btn:hover { background:#4c1d95; }
+.kps-overlay { position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:1000; display:flex; align-items:center; justify-content:center; padding:16px; }
+.kps-box { background:#0b1222; border:1px solid #6d28d9; border-radius:10px; width:min(820px,100%); max-height:90vh; display:flex; flex-direction:column; color:var(--text); box-shadow:0 12px 40px rgba(0,0,0,.6); }
+.kps-head { display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid #334155; flex-wrap:wrap; }
+.kps-head h3 { margin:0; font-size:15px; color:#ddd6fe; margin-right:auto; }
+.kps-head button { border:1px solid #475569; background:#1e293b; color:var(--text); border-radius:6px; padding:3px 10px; font-size:12px; cursor:pointer; }
+.kps-head button.danger { border-color:#7f1d1d; color:#fca5a5; }
+.kps-body { overflow:auto; padding:10px 14px 14px; font-size:12px; }
+.kps-summary { margin-bottom:8px; color:var(--text-dim); line-height:1.7; }
+.kps-table { width:100%; border-collapse:collapse; }
+.kps-table th, .kps-table td { border-bottom:1px solid #1e293b; padding:5px 6px; text-align:center; white-space:nowrap; }
+.kps-table th { color:#94a3b8; font-weight:600; position:sticky; top:0; background:#0b1222; }
+.kps-table td.name { text-align:left; font-weight:700; }
+.kps-table td.five { color:#86efac; font-weight:700; }
+.kps-table td.four { color:#fcd34d; font-weight:700; }
+.kps-table td.verdict { font-weight:700; }
+.kps-dist { text-align:left !important; white-space:normal !important; color:var(--text-faint); font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; }
+.kps-dist b { color:#c4b5fd; }
 `;
   const styleEl = document.createElement('style');
   styleEl.textContent = css;
@@ -123,6 +142,10 @@
     roomListEl = el('div', 'admin-user-list');
     roomsRow.appendChild(roomListEl);
     panel.appendChild(roomsRow);
+    const statsBtn = el('button', 'admin-stats-btn', '📊 全站時間點統計');
+    statsBtn.title = '所有房間按「擊殺」的時間點，統計五分區間 / 四分區間';
+    statsBtn.addEventListener('click', openKillStats);
+    panel.appendChild(statsBtn);
     const topBar = document.querySelector('.top-bar');
     topBar.parentNode.insertBefore(panel, topBar.nextSibling);
 
@@ -283,6 +306,109 @@
     myRoomPassword = password;
     manualJoinPending = true;
     A.socket.emit('joinRoom', { nickname: nicknameForRoom(password), password, clientId: myClientId });
+  }
+
+  // ---------- 全站時間點統計 ----------
+  let kpsOverlay = null;
+  function openKillStats() {
+    if (!A.isAdmin) return;
+    A.socket.emit('adminKillStats', (st) => {
+      if (!st) return;
+      if (kpsOverlay) kpsOverlay.remove();
+      kpsOverlay = el('div', 'kps-overlay');
+      kpsOverlay.addEventListener('click', (e) => { if (e.target === kpsOverlay) closeKillStats(); });
+      const box = el('div', 'kps-box');
+      const head = el('div', 'kps-head');
+      head.appendChild(el('h3', '', '📊 全站時間點統計'));
+      const refresh = el('button', '', '重新整理');
+      refresh.addEventListener('click', openKillStats);
+      const dl = el('button', '', '下載 CSV');
+      dl.addEventListener('click', downloadKillCsv);
+      const clr = el('button', 'danger', '清空統計');
+      clr.addEventListener('click', () => {
+        if (!confirm('確定要清空「全站」所有時間點統計嗎？此動作無法復原（各房間自己的紀錄表不受影響）。')) return;
+        A.socket.emit('adminClearKillStats', () => { showToast('已清空全站時間點統計'); openKillStats(); });
+      });
+      const close = el('button', '', '關閉');
+      close.addEventListener('click', closeKillStats);
+      [refresh, dl, clr, close].forEach((b) => head.appendChild(b));
+      box.appendChild(head);
+
+      const body = el('div', 'kps-body');
+      const t = st.total;
+      const sum = el('div', 'kps-summary');
+      const since = st.since ? new Date(st.since).toLocaleString() : '—';
+      sum.innerHTML = '';
+      sum.appendChild(document.createTextNode(
+        `共 ${t.n} 筆（${st.rooms} 個房間，最多保留 ${st.max} 筆，最早一筆 ${since}）　` +
+        `五分區間 ${t.five}　四分區間 ${t.four}　無法判斷 ${t.both}　都不符合 ${t.none}　未到重生 ${t.early}`));
+      sum.appendChild(el('br'));
+      sum.appendChild(document.createTextNode('判斷：時間點在 5 分 / 4 分倍數之後 60 秒內（或之前 15 秒內）算符合；0、20 分附近兩者都符合，記為無法判斷。分布 = 時間點落在第幾分鐘的筆數。'));
+      body.appendChild(sum);
+
+      const table = el('table', 'kps-table');
+      const thead = el('tr');
+      ['王', '筆數', '五分區間', '四分區間', '無法判斷', '都不符合', '未到重生', '傾向', '分布（分鐘:筆數）'].forEach((h) => thead.appendChild(el('th', '', h)));
+      table.appendChild(thead);
+      if (st.bosses.length === 0) {
+        const tr = el('tr');
+        const td = el('td', '', '還沒有任何紀錄');
+        td.colSpan = 9;
+        tr.appendChild(td);
+        table.appendChild(tr);
+      }
+      st.bosses.forEach((b) => {
+        const tr = el('tr');
+        tr.appendChild(el('td', 'name', b.name));
+        tr.appendChild(el('td', '', String(b.n)));
+        tr.appendChild(el('td', 'five', String(b.five)));
+        tr.appendChild(el('td', 'four', String(b.four)));
+        tr.appendChild(el('td', '', String(b.both)));
+        tr.appendChild(el('td', '', String(b.none)));
+        tr.appendChild(el('td', '', String(b.early)));
+        const decided = b.five + b.four;
+        let verdict = '資料不足';
+        let color = '#64748b';
+        if (decided >= 5) {
+          const p5 = b.five / decided;
+          if (p5 >= 0.7) { verdict = `五分區間（${Math.round(p5 * 100)}%）`; color = '#86efac'; }
+          else if (p5 <= 0.3) { verdict = `四分區間（${Math.round((1 - p5) * 100)}%）`; color = '#fcd34d'; }
+          else { verdict = '不明顯'; color = '#94a3b8'; }
+        }
+        const v = el('td', 'verdict', verdict);
+        v.style.color = color;
+        tr.appendChild(v);
+        const dist = el('td', 'kps-dist');
+        Object.keys(b.minutes).map(Number).sort((x, y) => x - y).forEach((m) => {
+          const span = el('span');
+          const strong = el('b', '', String(m));
+          span.appendChild(strong);
+          span.appendChild(document.createTextNode(`:${b.minutes[m]}　`));
+          dist.appendChild(span);
+        });
+        tr.appendChild(dist);
+        table.appendChild(tr);
+      });
+      body.appendChild(table);
+      box.appendChild(body);
+      kpsOverlay.appendChild(box);
+      document.body.appendChild(kpsOverlay);
+    });
+  }
+  function closeKillStats() { if (kpsOverlay) { kpsOverlay.remove(); kpsOverlay = null; } }
+  function downloadKillCsv() {
+    A.socket.emit('adminKillStatsCsv', (res) => {
+      if (!res || typeof res.csv !== 'string') return;
+      const blob = new Blob([res.csv], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      const d = new Date();
+      const p = (n) => String(n).padStart(2, '0');
+      a.download = `MSCtimer-時間點-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    });
   }
 
   function normalize(n) { return (n || '').trim().toLowerCase(); }

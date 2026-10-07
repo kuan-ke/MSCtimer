@@ -23,6 +23,11 @@ let serializeFn = null;
 const dirty = new Map(); // roomId -> room
 let timer = null;
 
+// 全站「時間點」統計（管理者用）：每次擊殺一筆，存成 Redis list，最多保留 GLOBAL_KP_MAX 筆
+const GLOBAL_KP_KEY = PREFIX + 'killpoints';
+const GLOBAL_KP_MAX = 20000;
+let pendingKp = []; // 還沒寫進 Upstash 的紀錄（JSON 字串）
+
 async function call(cmd) {
   const res = await fetch(URL_, {
     method: 'POST',
@@ -83,10 +88,16 @@ function markDirty(room) {
 }
 
 async function flush() {
-  if (!ENABLED || dirty.size === 0) return;
+  if (!ENABLED || (dirty.size === 0 && pendingKp.length === 0)) return;
   const rooms = Array.from(dirty.values());
   dirty.clear();
+  const kps = pendingKp;
+  pendingKp = [];
   const cmds = [];
+  if (kps.length) {
+    cmds.push(['RPUSH', GLOBAL_KP_KEY, ...kps]);
+    cmds.push(['LTRIM', GLOBAL_KP_KEY, String(-GLOBAL_KP_MAX), '-1']);
+  }
   rooms.forEach((room) => {
     cmds.push(['SET', PREFIX + 'room:' + room.id, JSON.stringify(serializeFn(room))]);
     cmds.push(['SADD', INDEX_KEY, room.id]);
@@ -96,6 +107,7 @@ async function flush() {
   } catch (e) {
     console.error('[保存] 寫入失敗，稍後重試：', e.message);
     rooms.forEach((r) => { if (!dirty.has(r.id)) dirty.set(r.id, r); });
+    pendingKp = kps.concat(pendingKp);
     if (!timer) timer = setTimeout(() => { timer = null; flush().catch(() => {}); }, 15000);
   }
 }
@@ -110,4 +122,25 @@ async function removeRoom(roomId) {
   }
 }
 
-module.exports = { ENABLED, init, loadAll, markDirty, flush, removeRoom, loadedFromLegacy: false };
+// 新增一筆全站時間點紀錄（跟房間一起在 3 秒後批次寫入）
+function pushKillPoint(entry) {
+  if (!ENABLED) return;
+  pendingKp.push(JSON.stringify(entry));
+  if (!timer) timer = setTimeout(() => { timer = null; flush().catch(() => {}); }, SAVE_DELAY_MS);
+}
+
+async function loadKillPoints() {
+  if (!ENABLED) return [];
+  const list = (await call(['LRANGE', GLOBAL_KP_KEY, '0', '-1'])) || [];
+  const out = [];
+  list.forEach((v) => { try { out.push(JSON.parse(v)); } catch (e) { /* 略過損壞的 */ } });
+  return out;
+}
+
+async function clearKillPoints() {
+  if (!ENABLED) return;
+  pendingKp = [];
+  await call(['DEL', GLOBAL_KP_KEY]);
+}
+
+module.exports = { ENABLED, init, loadAll, markDirty, flush, removeRoom, pushKillPoint, loadKillPoints, clearKillPoints, GLOBAL_KP_MAX, loadedFromLegacy: false };

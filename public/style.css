@@ -819,3 +819,34 @@ body {
 .standby-btn:hover { border-color: var(--accent); color: var(--text); }
 .standby-btn.taken { background: #14532d; border-color: #22c55e; color: #bbf7d0; font-weight: 700; }
 .status-row .status-spawn { white-space: nowrap; }
+
+/* ---------- 出現中右上角：「時間點」紀錄 ---------- */
+.active-sub-panel { position: relative; }
+.appear-title { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.killpoint-btn { border: 1px solid #475569; background: #1e293b; color: #c4b5fd; border-radius: 5px; padding: 1px 7px; font-size: 11px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.killpoint-btn:hover, .killpoint-btn.active { border-color: #a78bfa; background: #2e1065; color: #ede9fe; }
+.killpoint-pop { position: absolute; top: 24px; right: 0; z-index: 30; width: min(330px, 100%); max-height: min(360px, 80vh); display: flex; flex-direction: column; background: #0b1222; border: 1px solid #6d28d9; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.5); padding: 6px; }
+.killpoint-pop.hidden { display: none; }
+.killpoint-head { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 700; color: #ddd6fe; padding: 0 2px 5px; border-bottom: 1px solid var(--border); margin-bottom: 4px; flex-shrink: 0; }
+.killpoint-clear { border: 1px solid #7f1d1d; background: transparent; color: #fca5a5; border-radius: 4px; font-size: 11px; padding: 1px 6px; cursor: pointer; }
+.killpoint-clear:hover { background: #7f1d1d; color: #fff; }
+.killpoint-list { overflow-y: auto; min-height: 0; }
+.killpoint-row { display: grid; grid-template-columns: 1fr auto auto; column-gap: 8px; padding: 4px 4px; border-bottom: 1px dashed #1e293b; font-size: 12px; }
+.killpoint-name { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.killpoint-val { grid-row: span 2; align-self: center; font-size: 15px; font-weight: 800; color: #c4b5fd; font-variant-numeric: tabular-nums; }
+.killpoint-val.early { color: #93c5fd; }
+.killpoint-meta { font-size: 10px; color: var(--text-faint); }
+.killpoint-row .kp-tag { grid-column: 3; grid-row: 1 / span 2; align-self: center; }
+.killpoint-meta { grid-column: 1; grid-row: 2; }
+.kp-tag { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 4px; padding: 1px 6px; white-space: nowrap; border: 1px solid #475569; color: var(--text-dim); }
+.kp-tag.five { background: #14532d; border-color: #22c55e; color: #bbf7d0; }
+.kp-tag.four { background: #713f12; border-color: #f59e0b; color: #fde68a; }
+.kp-tag.both, .kp-tag.none, .kp-tag.early { background: transparent; color: var(--text-faint); }
+.killpoint-sum { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 0 2px 5px; margin-bottom: 4px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.killpoint-sum-other { font-size: 11px; color: var(--text-faint); }
+.killpoint-name { grid-column: 1; grid-row: 1; }
+.killpoint-val { grid-column: 2; grid-row: 1 / span 2; }
+.killpoint-name { display: flex; gap: 5px; min-width: 0; }
+.killpoint-boss { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.killpoint-ch { flex-shrink: 0; color: #93c5fd; font-weight: 700; }
+.killpoint-row { column-gap: 6px; }

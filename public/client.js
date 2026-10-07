@@ -1447,7 +1447,8 @@ async function openPip() {
             <div id="pipStatusCounting" class="status-list scrollable"></div>
           </div>
           <div class="active-sub-panel">
-            <div class="sub-panel-title">🌟 出現中</div>
+            <div class="sub-panel-title appear-title"><span>🌟 出現中</span><button type="button" class="killpoint-btn" title="每次按「擊殺」時，王已經重生了多久">⏱ 時間點</button></div>
+            <div class="killpoint-pop hidden"></div>
             <div id="pipStatusAppearing" class="status-list scrollable"></div>
           </div>
         </div>
@@ -1460,6 +1461,7 @@ async function openPip() {
   pipStatusCountingEl = pipDoc.getElementById('pipStatusCounting');
   pipStatusAppearingEl = pipDoc.getElementById('pipStatusAppearing');
   bindViewToggle(pipDoc);
+  bindKillPoints(pipDoc);
 
   pipWindow.addEventListener('pagehide', () => {
     pipWindow = null;
@@ -1497,6 +1499,159 @@ function syncViewToggles() {
 }
 
 bindViewToggle(document);
+
+// ---------- 「時間點」紀錄：每次擊殺時王已經重生多久（擊殺當下經過時間 − 最小值） ----------
+// 例：殭屍蘑菇王 40~60 分，距離最晚還剩 15:00 時擊殺 → 05:00；超過最晚 00:02 時擊殺 → 20:02
+let killPoints = [];
+
+// 判斷「五分區間」或「四分區間」：時間點離最近的 5 分 / 4 分倍數夠近，就算符合
+// 打一隻王約 10～15 秒，加上反應時間，容許擊殺晚到 60 秒；也容許早 15 秒（點死亡時的延遲）
+const KP_LATE_MS = 60 * 1000;
+const KP_EARLY_MS = 15 * 1000;
+function fitsStep(ms, stepMs) {
+  const r = ((ms % stepMs) + stepMs) % stepMs; // 超過最近倍數多少
+  return r < KP_LATE_MS || r > stepMs - KP_EARLY_MS;
+}
+function classifyKillPoint(ms) {
+  if (ms < -KP_EARLY_MS) return { key: 'early', text: '未到重生' };
+  const f5 = fitsStep(ms, 5 * 60000);
+  const f4 = fitsStep(ms, 4 * 60000);
+  if (f5 && f4) return { key: 'both', text: '無法判斷', title: '剛好在 0 / 20 分附近，五分、四分都符合' };
+  if (f5) return { key: 'five', text: '五分區間' };
+  if (f4) return { key: 'four', text: '四分區間' };
+  return { key: 'none', text: '都不符合', title: '離 5 分和 4 分倍數都超過 1 分鐘（可能王早就刷了）' };
+}
+
+function formatKillPoint(ms) {
+  return ms >= 0 ? formatMs(ms) : '-' + formatMs(-ms);
+}
+
+function renderKillPointsInto(d) {
+  if (!d) return;
+  const pop = d.querySelector('.killpoint-pop');
+  if (!pop) return;
+  pop.innerHTML = '';
+  const head = d.createElement('div');
+  head.className = 'killpoint-head';
+  const title = d.createElement('span');
+  title.textContent = `時間點紀錄（${killPoints.length}）`;
+  title.title = '擊殺當下，王已經重生了多久（死亡後經過的時間 − 最小值）';
+  head.appendChild(title);
+  const clearBtn = d.createElement('button');
+  clearBtn.type = 'button';
+  clearBtn.className = 'killpoint-clear';
+  clearBtn.textContent = '清空';
+  clearBtn.title = '只有隊長可以清空';
+  clearBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!joined) return;
+    if (!(d.defaultView || window).confirm('確定要清空所有時間點紀錄嗎？')) return;
+    socket.emit('clearKillPoints', (res) => {
+      if (!res || !res.ok) showToast((res && res.error) || '只有隊長可以清空時間點紀錄');
+    });
+  });
+  head.appendChild(clearBtn);
+  pop.appendChild(head);
+
+  // 統計：五分區間 / 四分區間各幾筆
+  const cnt = { five: 0, four: 0, both: 0, none: 0, early: 0 };
+  killPoints.forEach((k) => { cnt[classifyKillPoint(k.ms).key]++; });
+  const sum = d.createElement('div');
+  sum.className = 'killpoint-sum';
+  sum.innerHTML = '';
+  [['five', '五分區間'], ['four', '四分區間']].forEach(([key, label]) => {
+    const b = d.createElement('span');
+    b.className = 'kp-tag ' + key;
+    b.textContent = `${label} ${cnt[key]} 筆`;
+    sum.appendChild(b);
+  });
+  const other = cnt.both + cnt.none + cnt.early;
+  if (other > 0) {
+    const o = d.createElement('span');
+    o.className = 'killpoint-sum-other';
+    o.textContent = `其他 ${other} 筆`;
+    o.title = `無法判斷 ${cnt.both}、都不符合 ${cnt.none}、未到重生 ${cnt.early}`;
+    sum.appendChild(o);
+  }
+  pop.appendChild(sum);
+
+  const list = d.createElement('div');
+  list.className = 'killpoint-list';
+  if (killPoints.length === 0) {
+    const empty = d.createElement('div');
+    empty.className = 'status-empty';
+    empty.textContent = '還沒有紀錄，按「擊殺」時會自動記一筆';
+    list.appendChild(empty);
+  }
+  killPoints.forEach((k) => {
+    const row = d.createElement('div');
+    row.className = 'killpoint-row';
+    const name = d.createElement('span');
+    name.className = 'killpoint-name';
+    const boss = d.createElement('span');
+    boss.className = 'killpoint-boss';
+    boss.textContent = k.tabName;
+    boss.title = k.tabName;
+    const chEl = d.createElement('span');
+    chEl.className = 'killpoint-ch';
+    chEl.textContent = `ch.${k.channel}`;
+    name.appendChild(boss);
+    name.appendChild(chEl);
+    const val = d.createElement('span');
+    val.className = 'killpoint-val' + (k.ms < 0 ? ' early' : '');
+    val.textContent = formatKillPoint(k.ms);
+    const meta = d.createElement('span');
+    meta.className = 'killpoint-meta';
+    meta.textContent = `${formatClock(k.at)} ${k.by || ''}`;
+    row.appendChild(name);
+    row.appendChild(val);
+    row.appendChild(meta);
+    const c = classifyKillPoint(k.ms);
+    const tag = d.createElement('span');
+    tag.className = 'kp-tag ' + c.key;
+    tag.textContent = c.text;
+    if (c.title) tag.title = c.title;
+    row.appendChild(tag);
+    list.appendChild(row);
+  });
+  pop.appendChild(list);
+}
+
+function renderKillPoints() {
+  renderKillPointsInto(document);
+  if (typeof pipDoc !== 'undefined' && pipDoc) renderKillPointsInto(pipDoc);
+}
+
+function bindKillPoints(d) {
+  const btn = d.querySelector('.killpoint-btn');
+  const pop = d.querySelector('.killpoint-pop');
+  if (!btn || !pop) return;
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    pop.classList.toggle('hidden');
+    btn.classList.toggle('active', !pop.classList.contains('hidden'));
+  });
+  pop.addEventListener('click', (e) => e.stopPropagation());
+  d.addEventListener('click', () => {
+    pop.classList.add('hidden');
+    btn.classList.remove('active');
+  });
+  renderKillPointsInto(d);
+}
+
+bindKillPoints(document);
+
+socket.on('killpoint:init', (list) => {
+  killPoints = Array.isArray(list) ? list : [];
+  renderKillPoints();
+});
+
+socket.on('killpoint:new', (entry) => {
+  if (!entry) return;
+  killPoints.unshift(entry);
+  if (killPoints.length > 100) killPoints.length = 100;
+  renderKillPoints();
+});
 
 // ---------- Sound alert ----------
 let audioCtx = null;

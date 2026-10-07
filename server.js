@@ -14,6 +14,7 @@ const io = new Server(server, { perMessageDeflate: { threshold: 1024 } });
 const PORT = process.env.PORT || 3000;
 const CHANNEL_COUNT = 60;
 const APPEAR_HOLD_MS = 10 * 60 * 1000; // 超過最大值後，「出現中」再保留 10 分鐘才消失
+const MAX_KILL_POINTS = 100; // 「時間點」紀錄最多保留筆數
 const MAX_LOG = 500; // 每個房間的操作紀錄最多保留筆數（避免伺服器記憶體無限成長）
 // 房間密碼規則：剛好 6 個字元，只能是英文大小寫或數字（大小寫視為不同）
 const PASSWORD_RE = /^[A-Za-z0-9]{6}$/;
@@ -164,6 +165,7 @@ function createRoom(id, password) {
     bannedNicknames: new Set(), // 已被管理者移除、不可再進入此房間的暱稱（小寫）
     mutedNicknames: new Map(),  // 被禁止操作的使用者（小寫暱稱 -> 原始暱稱）
     activityLog: [],
+    killPoints: [],   // 「時間點」紀錄：每次擊殺時王已重生多久（新的在前）
     // 隊長：建立房間的人（以瀏覽器識別碼記住，重新整理、斷線重連後仍是隊長）
     captainClientId: null,
     captainName: null,           // 隊長目前的暱稱（隊長不在房間時也會顯示）
@@ -379,6 +381,74 @@ function addLog(room, message, type) {
   io.to(room.id).emit('log:new', entry);
 }
 
+// 全站時間點紀錄（新的在後）
+let globalKillPoints = [];
+
+// 判斷五分 / 四分區間（跟 client.js 的規則一樣：晚 60 秒內、早 15 秒內算符合）
+const KP_LATE_MS = 60 * 1000;
+const KP_EARLY_MS = 15 * 1000;
+function kpFits(ms, stepMs) {
+  const r = ((ms % stepMs) + stepMs) % stepMs;
+  return r < KP_LATE_MS || r > stepMs - KP_EARLY_MS;
+}
+function kpClass(ms) {
+  if (ms < -KP_EARLY_MS) return 'early';
+  const f5 = kpFits(ms, 300000), f4 = kpFits(ms, 240000);
+  if (f5 && f4) return 'both';
+  if (f5) return 'five';
+  if (f4) return 'four';
+  return 'none';
+}
+function kpStats() {
+  const byBoss = new Map();
+  const rooms = new Set();
+  const total = { five: 0, four: 0, both: 0, none: 0, early: 0, n: 0 };
+  globalKillPoints.forEach((k) => {
+    const key = k.i || k.b;
+    if (!byBoss.has(key)) byBoss.set(key, { name: k.b, five: 0, four: 0, both: 0, none: 0, early: 0, n: 0, minutes: {} });
+    const b = byBoss.get(key);
+    b.name = k.b; // 用最新的王名
+    const c = kpClass(k.m);
+    b[c]++; b.n++; total[c]++; total.n++;
+    if (k.m >= 0) { const mi = Math.floor(k.m / 60000); b.minutes[mi] = (b.minutes[mi] || 0) + 1; }
+    rooms.add(k.r);
+  });
+  return {
+    total,
+    rooms: rooms.size,
+    since: globalKillPoints.length ? globalKillPoints[0].t : null,
+    max: persist.GLOBAL_KP_MAX,
+    bosses: Array.from(byBoss.values()).sort((a, b) => b.n - a.n)
+  };
+}
+function kpCsv() {
+  const label = { five: '五分區間', four: '四分區間', both: '無法判斷', none: '都不符合', early: '未到重生' };
+  const pad = (n) => String(n).padStart(2, '0');
+  const fmt = (ms) => { const neg = ms < 0; const s = Math.floor(Math.abs(ms) / 1000); return (neg ? '-' : '') + pad(Math.floor(s / 60)) + ':' + pad(s % 60); };
+  const when = (t) => { const d = new Date(t + 8 * 3600000); return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`; };
+  const q = (v) => '"' + String(v).replace(/"/g, '""') + '"';
+  const lines = ['擊殺時間(台灣),王,CH,時間點,時間點(秒),判斷,房間代號'];
+  globalKillPoints.forEach((k) => {
+    lines.push([q(when(k.t)), q(k.b), k.c, q(fmt(k.m)), Math.round(k.m / 1000), q(label[kpClass(k.m)]), q(k.r)].join(','));
+  });
+  return '\ufeff' + lines.join('\r\n');
+}
+
+// 「時間點」：記錄一次擊殺（ms = 擊殺當下的經過時間 − 最小值；負數代表還沒到重生時間就按了）
+function addKillPoint(room, data) {
+  // 全站統計（管理者用）：所有房間的每一筆都收集起來，房間清空也不影響
+  const g = { t: data.at, b: data.tabName, i: data.image, c: data.channel, m: data.ms, r: String(room.id).slice(-6) };
+  globalKillPoints.push(g);
+  if (globalKillPoints.length > persist.GLOBAL_KP_MAX) globalKillPoints.splice(0, globalKillPoints.length - persist.GLOBAL_KP_MAX);
+  persist.pushKillPoint(g);
+  delete data.image;
+  const entry = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, ...data };
+  room.killPoints.unshift(entry);
+  if (room.killPoints.length > MAX_KILL_POINTS) room.killPoints.length = MAX_KILL_POINTS;
+  persist.markDirty(room);
+  io.to(room.id).emit('killpoint:new', entry);
+}
+
 function roomHasActiveChannels(room) {
   return room.tabs.some((t) => t.channels.some((c) => c.state !== 'idle'));
 }
@@ -516,6 +586,7 @@ io.on('connection', (socket) => {
     socket.emit('join:ack', { nickname: trimmedName, created, captain: isCaptain(room, socket) });
     socket.emit('state:init', { tabs: room.tabs, serverTime: Date.now() });
     socket.emit('log:init', room.activityLog);
+    socket.emit('killpoint:init', room.killPoints);
     if (socket.data.isAdmin) socket.emit('admin:mutedList', Array.from(room.mutedNicknames.values()));
     if (isCaptain(room, socket)) socket.emit('captain:muted', Array.from(room.captainMuted.values()));
     broadcastRoomInfo(room);
@@ -790,6 +861,34 @@ io.on('connection', (socket) => {
     }
   });
 
+  // 清空「時間點」紀錄（隊長或管理者；隊長操作會寫進操作紀錄）
+  socket.on('clearKillPoints', (cb) => {
+    const room = getRoom(socket);
+    const reply = typeof cb === 'function' ? cb : () => {};
+    if (!canTransferTimers(room)) return reply({ error: '只有隊長可以清空時間點紀錄' });
+    room.killPoints = [];
+    persist.markDirty(room);
+    io.to(room.id).emit('killpoint:init', []);
+    if (!socket.data.isAdmin) addLog(room, `${socket.data.nickname} 清空了時間點紀錄`, 'user');
+    reply({ ok: true });
+  });
+
+  // 管理者：全站時間點統計 / 下載 CSV / 清空
+  socket.on('adminKillStats', (cb) => {
+    if (typeof cb !== 'function' || !socket.data.isAdmin) return;
+    cb(kpStats());
+  });
+  socket.on('adminKillStatsCsv', (cb) => {
+    if (typeof cb !== 'function' || !socket.data.isAdmin) return;
+    cb({ csv: kpCsv() });
+  });
+  socket.on('adminClearKillStats', async (cb) => {
+    if (!socket.data.isAdmin) return;
+    globalKillPoints = [];
+    try { await persist.clearKillPoints(); } catch (e) { console.error('[保存] 清空時間點統計失敗：', e.message); }
+    if (typeof cb === 'function') cb({ ok: true });
+  });
+
   // 管理者清空此房間全部操作紀錄
   socket.on('adminClearLog', () => {
     const room = getRoom(socket);
@@ -887,10 +986,23 @@ io.on('connection', (socket) => {
     const ch = tab.channels[channelIndex];
     if (!ch) return;
 
+    // 記錄「時間點」：按下擊殺當下，王已經重生了多久（經過時間 − 最小值）
+    const killNow = Date.now();
+    if (ch.state !== 'idle' && ch.startTime !== null) {
+      addKillPoint(room, {
+        at: killNow,
+        tabName: tab.name,
+        image: tab.image || null,
+        channel: channelIndex + 1,
+        ms: (killNow - ch.startTime) - (ch.customMin ?? tab.minMinutes) * 60000,
+        by: nickname
+      });
+    }
+
     ch.customMin = null;
     ch.customMax = null;
     ch.state = 'counting';
-    ch.startTime = Date.now();
+    ch.startTime = killNow;
     ch.startedBy = nickname;
     ch.standby = null;
     tab.killCount = (tab.killCount || 0) + 1;
@@ -1014,6 +1126,7 @@ function serializeRoom(room) {
     muted: Array.from(room.mutedNicknames.entries()),
     captainMuted: Array.from(room.captainMuted.entries()),
     log: room.activityLog.slice(0, SAVED_LOG_LIMIT),
+    kp: room.killPoints,
     // CH 只存非待機的（大部分是待機），讓資料很小
     tabs: room.tabs.map((t) => {
       const ch = {};
@@ -1033,6 +1146,7 @@ function restoreRoom(data) {
   room.mutedNicknames = new Map(data.muted || []);
   room.captainMuted = new Map(data.captainMuted || []);
   room.activityLog = Array.isArray(data.log) ? data.log : [];
+  room.killPoints = Array.isArray(data.kp) ? data.kp.slice(0, MAX_KILL_POINTS) : [];
 
   const savedTabs = Array.isArray(data.tabs) ? data.tabs : [];
   const fillChannels = (tab, saved) => {
@@ -1094,6 +1208,12 @@ async function start() {
       // 從舊名稱讀回的房間，馬上以新名稱存一份
       if (persist.loadedFromLegacy) rooms.forEach((room) => persist.markDirty(room));
       console.log(`[保存] 已從 Upstash 讀回 ${rooms.size} 間房間`);
+      try {
+        globalKillPoints = await persist.loadKillPoints();
+        console.log(`[保存] 已讀回 ${globalKillPoints.length} 筆全站時間點紀錄`);
+      } catch (e) {
+        console.error('[保存] 讀取時間點統計失敗：', e.message);
+      }
     } catch (e) {
       console.error('[保存] 讀取失敗，這次以空的狀態啟動：', e.message);
     }
