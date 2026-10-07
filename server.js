@@ -384,15 +384,14 @@ function addLog(room, message, type) {
 // 全站時間點紀錄（新的在後）
 let globalKillPoints = [];
 
-// 判斷五分 / 四分區間（跟 client.js 的規則一樣：晚 60 秒內、早 15 秒內算符合）
-const KP_LATE_MS = 60 * 1000;
-const KP_EARLY_MS = 15 * 1000;
+// 判斷五分 / 四分區間（跟 client.js 的規則一樣：在 5 分 / 4 分倍數的正負 30 秒內算符合；兩者都符合時兩邊都 +1）
+const KP_TOLERANCE_MS = 30 * 1000;
 function kpFits(ms, stepMs) {
   const r = ((ms % stepMs) + stepMs) % stepMs;
-  return r < KP_LATE_MS || r > stepMs - KP_EARLY_MS;
+  return r <= KP_TOLERANCE_MS || r >= stepMs - KP_TOLERANCE_MS;
 }
 function kpClass(ms) {
-  if (ms < -KP_EARLY_MS) return 'early';
+  if (ms < -KP_TOLERANCE_MS) return 'early';
   const f5 = kpFits(ms, 300000), f4 = kpFits(ms, 240000);
   if (f5 && f4) return 'both';
   if (f5) return 'five';
@@ -409,7 +408,11 @@ function kpStats() {
     const b = byBoss.get(key);
     b.name = k.b; // 用最新的王名
     const c = kpClass(k.m);
-    b[c]++; b.n++; total[c]++; total.n++;
+    b.n++; total.n++;
+    if (c === 'both') { b.both++; total.both++; }
+    if (c === 'five' || c === 'both') { b.five++; total.five++; }
+    if (c === 'four' || c === 'both') { b.four++; total.four++; }
+    if (c === 'none' || c === 'early') { b[c]++; total[c]++; }
     if (k.m >= 0) { const mi = Math.floor(k.m / 60000); b.minutes[mi] = (b.minutes[mi] || 0) + 1; }
     rooms.add(k.r);
   });
@@ -422,7 +425,7 @@ function kpStats() {
   };
 }
 function kpCsv() {
-  const label = { five: '五分區間', four: '四分區間', both: '無法判斷', none: '都不符合', early: '未到重生' };
+  const label = { five: '五分區間', four: '四分區間', both: '五分＋四分區間', none: '都不符合', early: '未到重生' };
   const pad = (n) => String(n).padStart(2, '0');
   const fmt = (ms) => { const neg = ms < 0; const s = Math.floor(Math.abs(ms) / 1000); return (neg ? '-' : '') + pad(Math.floor(s / 60)) + ':' + pad(s % 60); };
   const when = (t) => { const d = new Date(t + 8 * 3600000); return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`; };

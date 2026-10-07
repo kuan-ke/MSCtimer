@@ -21,6 +21,16 @@
     <div class="top-bar-right">
       <button id="importBtn" class="top-btn" title="匯入本網站匯出的計時（只有隊長可以使用）">📥 匯入計時</button>
       <button id="exportBtn" class="top-btn" title="匯出目前房間的計時：密鑰（可匯入）或文字時間表（只有隊長可以使用）">📋 匯出計時</button>
+      <div class="sound-wrap">
+        <button id="soundBtn" class="top-btn" title="音效設定：擊殺音效、提示音開關">🔊 音效</button>
+        <div id="soundPop" class="sound-pop hidden">
+          <label class="sound-opt"><span>擊殺音效</span><input type="checkbox" id="optKillSound"><span class="sound-switch"></span></label>
+          <div class="sound-vol" title="擊殺音效音量（往左小、往右大）"><span class="vol-ico">🔈</span><input type="range" id="killVolume" min="0" max="100" step="1"><span class="vol-ico">🔊</span></div>
+          <label class="sound-opt"><span>提示音</span><input type="checkbox" id="optAlertSound"><span class="sound-switch"></span></label>
+          <div class="sound-vol" title="提示音音量（往左小、往右大）"><span class="vol-ico">🔈</span><input type="range" id="alertVolume" min="0" max="100" step="1"><span class="vol-ico">🔊</span></div>
+          <div class="sound-note">只影響自己的瀏覽器，會記住設定</div>
+        </div>
+      </div>
       <button id="pipBtn" class="top-btn" title="開啟子母畫面（浮動在最上層的小視窗）">📺 子母畫面</button>
       <span id="roomDisplay" class="room-badge hidden" title="點一下顯示 / 隱藏房間密碼">🔐 房間：<span id="roomPasswordText">••••</span></span>
       <button id="switchRoomBtn" class="top-btn hidden" title="離開目前房間，輸入其他房間密碼">換房間</button>

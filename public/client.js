@@ -1185,6 +1185,7 @@ function renderStatusColumn(container, rows, emptyText, showTabName) {
       e.stopPropagation();
       if (!ensureNickname()) return;
       socket.emit('channelKillNow', { tabId: r.tabId, channelIndex: r.channelIndex });
+      playKillSound(r.tabImage);
     });
     row.appendChild(killBtn);
 
@@ -1504,22 +1505,21 @@ bindViewToggle(document);
 // 例：殭屍蘑菇王 40~60 分，距離最晚還剩 15:00 時擊殺 → 05:00；超過最晚 00:02 時擊殺 → 20:02
 let killPoints = [];
 
-// 判斷「五分區間」或「四分區間」：時間點離最近的 5 分 / 4 分倍數夠近，就算符合
-// 打一隻王約 10～15 秒，加上反應時間，容許擊殺晚到 60 秒；也容許早 15 秒（點死亡時的延遲）
-const KP_LATE_MS = 60 * 1000;
-const KP_EARLY_MS = 15 * 1000;
+// 判斷「五分區間」或「四分區間」：時間點在 5 分 / 4 分倍數的正負 30 秒內就算符合
+// 例：20:00 ±30 秒 → 五分區間（20 也是 4 的倍數，所以同時算四分區間，兩邊各 +1）；16:00 ±30 秒 → 四分區間
+const KP_TOLERANCE_MS = 30 * 1000;
 function fitsStep(ms, stepMs) {
-  const r = ((ms % stepMs) + stepMs) % stepMs; // 超過最近倍數多少
-  return r < KP_LATE_MS || r > stepMs - KP_EARLY_MS;
+  const r = ((ms % stepMs) + stepMs) % stepMs; // 離最近倍數多遠
+  return r <= KP_TOLERANCE_MS || r >= stepMs - KP_TOLERANCE_MS;
 }
 function classifyKillPoint(ms) {
-  if (ms < -KP_EARLY_MS) return { key: 'early', text: '未到重生' };
-  const f5 = fitsStep(ms, 5 * 60000);
-  const f4 = fitsStep(ms, 4 * 60000);
-  if (f5 && f4) return { key: 'both', text: '無法判斷', title: '剛好在 0 / 20 分附近，五分、四分都符合' };
-  if (f5) return { key: 'five', text: '五分區間' };
-  if (f4) return { key: 'four', text: '四分區間' };
-  return { key: 'none', text: '都不符合', title: '離 5 分和 4 分倍數都超過 1 分鐘（可能王早就刷了）' };
+  if (ms < -KP_TOLERANCE_MS) return { key: 'early', five: false, four: false, text: '未到重生' };
+  const five = fitsStep(ms, 5 * 60000);
+  const four = fitsStep(ms, 4 * 60000);
+  if (five && four) return { key: 'both', five, four };
+  if (five) return { key: 'five', five, four };
+  if (four) return { key: 'four', five, four };
+  return { key: 'none', five, four, text: '都不符合', title: '離 5 分和 4 分倍數都超過 30 秒' };
 }
 
 function formatKillPoint(ms) {
@@ -1553,24 +1553,29 @@ function renderKillPointsInto(d) {
   head.appendChild(clearBtn);
   pop.appendChild(head);
 
-  // 統計：五分區間 / 四分區間各幾筆
-  const cnt = { five: 0, four: 0, both: 0, none: 0, early: 0 };
-  killPoints.forEach((k) => { cnt[classifyKillPoint(k.ms).key]++; });
+  // 統計：五分區間 / 四分區間各幾筆（重疊的兩邊都算）
+  const cnt = { five: 0, four: 0, none: 0, early: 0 };
+  killPoints.forEach((k) => {
+    const c = classifyKillPoint(k.ms);
+    if (c.five) cnt.five++;
+    if (c.four) cnt.four++;
+    if (c.key === 'none') cnt.none++;
+    if (c.key === 'early') cnt.early++;
+  });
   const sum = d.createElement('div');
   sum.className = 'killpoint-sum';
-  sum.innerHTML = '';
   [['five', '五分區間'], ['four', '四分區間']].forEach(([key, label]) => {
     const b = d.createElement('span');
     b.className = 'kp-tag ' + key;
     b.textContent = `${label} ${cnt[key]} 筆`;
     sum.appendChild(b);
   });
-  const other = cnt.both + cnt.none + cnt.early;
+  const other = cnt.none + cnt.early;
   if (other > 0) {
     const o = d.createElement('span');
     o.className = 'killpoint-sum-other';
     o.textContent = `其他 ${other} 筆`;
-    o.title = `無法判斷 ${cnt.both}、都不符合 ${cnt.none}、未到重生 ${cnt.early}`;
+    o.title = `都不符合 ${cnt.none}、未到重生 ${cnt.early}`;
     sum.appendChild(o);
   }
   pop.appendChild(sum);
@@ -1607,11 +1612,19 @@ function renderKillPointsInto(d) {
     row.appendChild(val);
     row.appendChild(meta);
     const c = classifyKillPoint(k.ms);
-    const tag = d.createElement('span');
-    tag.className = 'kp-tag ' + c.key;
-    tag.textContent = c.text;
-    if (c.title) tag.title = c.title;
-    row.appendChild(tag);
+    const tags = d.createElement('span');
+    tags.className = 'kp-tags';
+    const addTag = (cls, text, title) => {
+      const t = d.createElement('span');
+      t.className = 'kp-tag ' + cls;
+      t.textContent = text;
+      if (title) t.title = title;
+      tags.appendChild(t);
+    };
+    if (c.five) addTag('five', '五分區間', c.four ? '同時符合 5 分與 4 分倍數，兩邊都 +1' : '');
+    if (c.four) addTag('four', '四分區間', c.five ? '同時符合 5 分與 4 分倍數，兩邊都 +1' : '');
+    if (!c.five && !c.four) addTag(c.key, c.text, c.title);
+    row.appendChild(tags);
     list.appendChild(row);
   });
   pop.appendChild(list);
@@ -1653,16 +1666,111 @@ socket.on('killpoint:new', (entry) => {
   renderKillPoints();
 });
 
+// 擊殺音效音量：滑桿 0~100 對應實際音量 0~KILL_SOUND_MAX（最高 50%），預設 10%
+const KILL_SOUND_MAX = 0.5;
+const KILL_VOLUME_KEY = 'msctimer_kill_volume';
+let killVolume = parseFloat(storageGet(KILL_VOLUME_KEY));
+if (!Number.isFinite(killVolume) || killVolume < 0 || killVolume > KILL_SOUND_MAX) killVolume = 0.1;
+// 提示音音量：滑桿 0~100 對應 0~ALERT_SOUND_MAX，預設 0.045（目前的音量）
+const ALERT_SOUND_MAX = 0.15;
+const ALERT_VOLUME_KEY = 'msctimer_alert_volume';
+let alertVolume = parseFloat(storageGet(ALERT_VOLUME_KEY));
+if (!Number.isFinite(alertVolume) || alertVolume < 0 || alertVolume > ALERT_SOUND_MAX) alertVolume = 0.045;
+
+// ---------- 音效設定（擊殺音效 / 提示音 各自開關；只影響自己這台瀏覽器，會記住） ----------
+const KILL_SOUND_KEY = 'msctimer_kill_sound';
+const ALERT_SOUND_KEY = 'msctimer_alert_sound';
+if (storageGet('msctimer_muted') === '1') { // 舊版「全站靜音」→ 兩個都關
+  storageSet(KILL_SOUND_KEY, '0'); storageSet(ALERT_SOUND_KEY, '0'); storageSet('msctimer_muted', '0');
+}
+let killSoundOn = storageGet(KILL_SOUND_KEY) !== '0';
+let alertSoundOn = storageGet(ALERT_SOUND_KEY) !== '0';
+const soundBtn = document.getElementById('soundBtn');
+const soundPop = document.getElementById('soundPop');
+const optKillSound = document.getElementById('optKillSound');
+const optAlertSound = document.getElementById('optAlertSound');
+function renderSoundBtn() {
+  if (!soundBtn) return;
+  const icon = killSoundOn && alertSoundOn ? '🔊' : (!killSoundOn && !alertSoundOn ? '🔇' : '🔉');
+  soundBtn.textContent = `${icon} 音效`;
+  soundBtn.classList.toggle('muted', !killSoundOn && !alertSoundOn);
+  soundBtn.title = `擊殺音效：${killSoundOn ? '開' : '關'}／提示音：${alertSoundOn ? '開' : '關'}`;
+  if (optKillSound) optKillSound.checked = killSoundOn;
+  if (optAlertSound) optAlertSound.checked = alertSoundOn;
+}
+if (soundBtn && soundPop) {
+  soundBtn.addEventListener('click', (e) => { e.stopPropagation(); soundPop.classList.toggle('hidden'); });
+  soundPop.addEventListener('click', (e) => e.stopPropagation());
+  document.addEventListener('click', () => soundPop.classList.add('hidden'));
+  optKillSound.addEventListener('change', () => {
+    killSoundOn = optKillSound.checked; storageSet(KILL_SOUND_KEY, killSoundOn ? '1' : '0'); renderSoundBtn();
+  });
+  optAlertSound.addEventListener('change', () => {
+    alertSoundOn = optAlertSound.checked; storageSet(ALERT_SOUND_KEY, alertSoundOn ? '1' : '0'); renderSoundBtn();
+    if (alertSoundOn) playBeep(660); // 打開時試聽一下
+  });
+  const killVolumeEl = document.getElementById('killVolume');
+  if (killVolumeEl) {
+    killVolumeEl.value = String(Math.round(killVolume / KILL_SOUND_MAX * 100));
+    killVolumeEl.addEventListener('input', () => {
+      killVolume = Math.max(0, Math.min(KILL_SOUND_MAX, Number(killVolumeEl.value) / 100 * KILL_SOUND_MAX));
+      storageSet(KILL_VOLUME_KEY, String(killVolume));
+    });
+    // 放開滑桿時試聽一下（擊殺音效有開才播）
+    killVolumeEl.addEventListener('change', () => playKillSound('mushroom-king.png'));
+  }
+  const alertVolumeEl = document.getElementById('alertVolume');
+  if (alertVolumeEl) {
+    alertVolumeEl.value = String(Math.round(alertVolume / ALERT_SOUND_MAX * 100));
+    alertVolumeEl.addEventListener('input', () => {
+      alertVolume = Math.max(0, Math.min(ALERT_SOUND_MAX, Number(alertVolumeEl.value) / 100 * ALERT_SOUND_MAX));
+      storageSet(ALERT_VOLUME_KEY, String(alertVolume));
+    });
+    alertVolumeEl.addEventListener('change', () => playBeep(660)); // 放開時試聽
+  }
+  renderSoundBtn();
+}
+
+// ---------- 擊殺音效：按「擊殺」時播放該王的受傷（80%）或死亡（20%）音效 ----------
+const BOSS_SOUNDS = {
+  'red-king.png': 'red-king',
+  'tree-demon-king.png': 'tree-demon-king',
+  'giant-crab.png': 'giant-crab',
+  'zombie-monkey-king.png': 'zombie-monkey-king',
+  'mushroom-king.png': 'mushroom-king',
+  'zombie-mushroom-king.png': 'zombie-mushroom-king',
+  'swamp-crocodile.png': 'swamp-crocodile',
+  'barogu.png': 'barogu',
+  'elliget.png': 'elliget',
+  'snow-fur-monster.png': 'snow-fur-monster'
+};
+const killAudioCache = {};
+function playKillSound(image) {
+  if (!killSoundOn) return;
+  const key = image && BOSS_SOUNDS[String(image).split('/').pop()];
+  if (!key) return; // 自訂的王沒有音效
+  const kind = Math.random() < 0.8 ? 'damage' : 'die';
+  const src = `/sounds/${key}-${kind}.mp3`;
+  try {
+    if (!killAudioCache[src]) { killAudioCache[src] = new Audio(src); killAudioCache[src].preload = 'auto'; }
+    const a = killAudioCache[src].cloneNode();
+    a.volume = killVolume;
+    const p = a.play();
+    if (p && p.catch) p.catch(() => {});
+  } catch (e) { /* 播放失敗就算了 */ }
+}
+
 // ---------- Sound alert ----------
 let audioCtx = null;
 function playBeep(freq) {
+  if (!alertSoundOn) return;
   try {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     osc.type = 'sine';
     osc.frequency.value = freq || 880;
-    gain.gain.value = 0.045; // 原本 0.15 的 30%
+    gain.gain.value = alertVolume; // 由音效設定的滑桿決定（預設 0.045）
     osc.connect(gain);
     gain.connect(audioCtx.destination);
     osc.start();

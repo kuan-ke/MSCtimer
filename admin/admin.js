@@ -341,14 +341,14 @@
       sum.innerHTML = '';
       sum.appendChild(document.createTextNode(
         `共 ${t.n} 筆（${st.rooms} 個房間，最多保留 ${st.max} 筆，最早一筆 ${since}）　` +
-        `五分區間 ${t.five}　四分區間 ${t.four}　無法判斷 ${t.both}　都不符合 ${t.none}　未到重生 ${t.early}`));
+        `五分區間 ${t.five}　四分區間 ${t.four}（其中兩邊重疊 ${t.both}）　都不符合 ${t.none}　未到重生 ${t.early}`));
       sum.appendChild(el('br'));
-      sum.appendChild(document.createTextNode('判斷：時間點在 5 分 / 4 分倍數之後 60 秒內（或之前 15 秒內）算符合；0、20 分附近兩者都符合，記為無法判斷。分布 = 時間點落在第幾分鐘的筆數。'));
+      sum.appendChild(document.createTextNode('判斷：時間點在 5 分 / 4 分倍數的正負 30 秒內算符合；同時符合兩者（例如 0、20 分）時，五分、四分區間都 +1。分布 = 時間點落在第幾分鐘的筆數。'));
       body.appendChild(sum);
 
       const table = el('table', 'kps-table');
       const thead = el('tr');
-      ['王', '筆數', '五分區間', '四分區間', '無法判斷', '都不符合', '未到重生', '傾向', '分布（分鐘:筆數）'].forEach((h) => thead.appendChild(el('th', '', h)));
+      ['王', '筆數', '五分區間', '四分區間', '重疊（兩邊都算）', '都不符合', '未到重生', '傾向', '分布（分鐘:筆數）'].forEach((h) => thead.appendChild(el('th', '', h)));
       table.appendChild(thead);
       if (st.bosses.length === 0) {
         const tr = el('tr');
@@ -366,11 +366,13 @@
         tr.appendChild(el('td', '', String(b.both)));
         tr.appendChild(el('td', '', String(b.none)));
         tr.appendChild(el('td', '', String(b.early)));
-        const decided = b.five + b.four;
+        // 傾向只看「只符合一邊」的紀錄（重疊的兩邊都算，不影響比例判斷）
+        const only5 = b.five - b.both, only4 = b.four - b.both;
+        const decided = only5 + only4;
         let verdict = '資料不足';
         let color = '#64748b';
         if (decided >= 5) {
-          const p5 = b.five / decided;
+          const p5 = only5 / decided;
           if (p5 >= 0.7) { verdict = `五分區間（${Math.round(p5 * 100)}%）`; color = '#86efac'; }
           else if (p5 <= 0.3) { verdict = `四分區間（${Math.round((1 - p5) * 100)}%）`; color = '#fcd34d'; }
           else { verdict = '不明顯'; color = '#94a3b8'; }
