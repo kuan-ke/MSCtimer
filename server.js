@@ -166,6 +166,7 @@ function createRoom(id, password) {
     mutedNicknames: new Map(),  // 被禁止操作的使用者（小寫暱稱 -> 原始暱稱）
     activityLog: [],
     killPoints: [],   // 「時間點」紀錄：每次擊殺時王已重生多久（新的在前）
+    loot: {},         // 「戰利品」紀錄：{ 王圖檔: { 道具編號: 次數 } }
     // 隊長：建立房間的人（以瀏覽器識別碼記住，重新整理、斷線重連後仍是隊長）
     captainClientId: null,
     captainName: null,           // 隊長目前的暱稱（隊長不在房間時也會顯示）
@@ -381,6 +382,63 @@ function addLog(room, message, type) {
   io.to(room.id).emit('log:new', entry);
 }
 
+// ---------- 戰利品 ----------
+// 各王可記錄的道具（來自 public/drops/drops.json，遊戲的怪物圖鑑戰利品清單）
+let DROPS = {};
+try { DROPS = JSON.parse(fs.readFileSync(path.join(__dirname, 'public', 'drops', 'drops.json'), 'utf8')); } catch (e) { console.error('[戰利品] 讀不到 drops.json：', e.message); }
+const DROP_ITEMS = {};
+Object.entries(DROPS).forEach(([img, b]) => { DROP_ITEMS[img] = new Map((b.drops || []).map((d) => [d.id, d.name])); });
+const LOOT_MIN_KILLS = 50; // 房間這隻王擊殺達 50 次以上，才算進全站戰利品統計
+
+// 全站戰利品統計：{ 房間代號: { 王圖檔: { k: 擊殺數, i: { 道具編號: 次數 }, t: 更新時間 } } }
+let globalLoot = {};
+function roomShort(room) { return String(room.id).slice(-6); }
+// 被管理者排除的房間（亂點等），之後不再計入：globalLoot._x = [房間代號…]
+function lootExcluded() { if (!Array.isArray(globalLoot._x)) globalLoot._x = []; return globalLoot._x; }
+function lootRooms() { return Object.keys(globalLoot).filter((k) => k !== '_x'); }
+function updateGlobalLoot(room, image) {
+  if (!DROP_ITEMS[image]) return;
+  if (lootExcluded().includes(roomShort(room))) return;
+  const tab = room.tabs.find((t) => t.locked && t.image === image);
+  const kills = tab ? (tab.killCount || 0) : 0;
+  const key = roomShort(room);
+  if (kills >= LOOT_MIN_KILLS) {
+    if (!globalLoot[key]) globalLoot[key] = {};
+    globalLoot[key][image] = { k: kills, i: { ...(room.loot[image] || {}) }, t: Date.now() };
+  } else if (globalLoot[key] && globalLoot[key][image]) {
+    delete globalLoot[key][image];
+    if (Object.keys(globalLoot[key]).length === 0) delete globalLoot[key];
+  } else {
+    return;
+  }
+  persist.markLootDirty(() => globalLoot);
+}
+function lootStats() {
+  const bosses = {};
+  lootRooms().forEach((rk) => {
+    Object.entries(globalLoot[rk]).forEach(([img, v]) => {
+      if (!bosses[img]) bosses[img] = { image: img, name: (DROPS[img] && DROPS[img].name) || img, rooms: 0, kills: 0, items: {} };
+      const b = bosses[img];
+      b.rooms++; b.kills += v.k || 0;
+      Object.entries(v.i || {}).forEach(([id, c]) => { b.items[id] = (b.items[id] || 0) + c; });
+    });
+  });
+  return Object.values(bosses).map((b) => ({
+    ...b,
+    items: Object.entries(b.items).map(([id, c]) => ({ id: Number(id), name: (DROP_ITEMS[b.image] && DROP_ITEMS[b.image].get(Number(id))) || id, count: c }))
+      .sort((x, y) => y.count - x.count)
+  })).sort((a, b) => b.kills - a.kills);
+}
+function lootCsv() {
+  const q = (v) => '"' + String(v).replace(/"/g, '""') + '"';
+  const lines = ['王,參與房間數,總擊殺次數,道具編號,道具名稱,記錄掉落次數,掉落率(%)'];
+  lootStats().forEach((b) => {
+    if (b.items.length === 0) lines.push([q(b.name), b.rooms, b.kills, '', '', 0, ''].join(','));
+    b.items.forEach((it) => lines.push([q(b.name), b.rooms, b.kills, it.id, q(it.name), it.count, b.kills ? (it.count / b.kills * 100).toFixed(2) : ''].join(',')));
+  });
+  return '\ufeff' + lines.join('\r\n');
+}
+
 // 全站時間點紀錄（新的在後）
 let globalKillPoints = [];
 
@@ -590,6 +648,7 @@ io.on('connection', (socket) => {
     socket.emit('state:init', { tabs: room.tabs, serverTime: Date.now() });
     socket.emit('log:init', room.activityLog);
     socket.emit('killpoint:init', room.killPoints);
+    socket.emit('loot:init', room.loot || {});
     if (socket.data.isAdmin) socket.emit('admin:mutedList', Array.from(room.mutedNicknames.values()));
     if (isCaptain(room, socket)) socket.emit('captain:muted', Array.from(room.captainMuted.values()));
     broadcastRoomInfo(room);
@@ -864,6 +923,104 @@ io.on('connection', (socket) => {
     }
   });
 
+  // 記錄一次戰利品（任何人；從「戰利品」目錄點道具）
+  socket.on('lootRecord', ({ image, itemId } = {}, cb) => {
+    const reply = typeof cb === 'function' ? cb : () => {};
+    const room = requireRoom();
+    if (!room) return reply({ error: '無法記錄' });
+    const id = Number(itemId);
+    const items = DROP_ITEMS[image];
+    if (!items || !items.has(id)) return reply({ error: '這不是這隻王的戰利品' });
+    if (!room.loot[image]) room.loot[image] = {};
+    const count = (room.loot[image][id] || 0) + 1;
+    room.loot[image][id] = count;
+    persist.markDirty(room);
+    io.to(room.id).emit('loot:update', { image, itemId: id, count });
+    addLog(room, `${socket.data.nickname} 記錄了「${(DROPS[image] && DROPS[image].name) || ''}」掉落：${items.get(id)}（第 ${count} 個）`, 'start');
+    updateGlobalLoot(room, image);
+    reply({ ok: true, count });
+  });
+
+  // 減少一次戰利品紀錄（記錯時用；任何人可操作，會寫進操作紀錄）
+  socket.on('lootUndo', ({ image, itemId } = {}) => {
+    const room = requireRoom();
+    if (!room) return;
+    const id = Number(itemId);
+    if (!room.loot[image] || !room.loot[image][id]) return;
+    const count = room.loot[image][id] - 1;
+    if (count > 0) room.loot[image][id] = count; else delete room.loot[image][id];
+    if (Object.keys(room.loot[image]).length === 0) delete room.loot[image];
+    persist.markDirty(room);
+    io.to(room.id).emit('loot:update', { image, itemId: id, count: Math.max(0, count) });
+    const name = DROP_ITEMS[image] ? DROP_ITEMS[image].get(id) : id;
+    addLog(room, `${socket.data.nickname} 將「${(DROPS[image] && DROPS[image].name) || ''}」的 ${name} 紀錄 -1`, 'stop');
+    updateGlobalLoot(room, image);
+  });
+
+  // 清空本房間戰利品紀錄（隊長或管理者）
+  socket.on('lootClear', (cb) => {
+    const room = getRoom(socket);
+    const reply = typeof cb === 'function' ? cb : () => {};
+    if (!canTransferTimers(room)) return reply({ error: '只有隊長可以清空戰利品紀錄' });
+    const imgs = Object.keys(room.loot || {});
+    room.loot = {};
+    persist.markDirty(room);
+    io.to(room.id).emit('loot:init', {});
+    if (!socket.data.isAdmin) addLog(room, `${socket.data.nickname} 清空了戰利品紀錄`, 'user');
+    // 這間房間在全站統計裡的資料也一起移除（避免擊殺數留著、掉落歸零造成掉率失真）
+    const key = roomShort(room);
+    if (globalLoot[key] && key !== '_x') { delete globalLoot[key]; persist.markLootDirty(() => globalLoot); }
+    reply({ ok: true, cleared: imgs.length });
+  });
+
+  // 管理者：全站戰利品統計 / CSV / 清空
+  socket.on('adminLootStats', (cb) => {
+    if (typeof cb !== 'function' || !socket.data.isAdmin) return;
+    // 各房間明細（給管理者單獨刪除）
+    const byShort = new Map(); rooms.forEach((r) => byShort.set(roomShort(r), r));
+    const roomList = lootRooms().map((rk) => {
+      const r = byShort.get(rk);
+      return {
+        key: rk,
+        password: r ? r.password : null,
+        bosses: Object.entries(globalLoot[rk]).map(([img, v]) => ({
+          name: (DROPS[img] && DROPS[img].name) || img, kills: v.k || 0,
+          items: Object.values(v.i || {}).reduce((a, c) => a + c, 0), t: v.t
+        }))
+      };
+    });
+    const excluded = lootExcluded().map((rk) => ({ key: rk, password: byShort.get(rk) ? byShort.get(rk).password : null }));
+    cb({ minKills: LOOT_MIN_KILLS, rooms: roomList.length, bosses: lootStats(), roomList, excluded });
+  });
+  // 管理者：從全站戰利品統計刪除某間房間，並排除（之後不再計入）；或恢復計入
+  socket.on('adminLootRemoveRoom', ({ key } = {}, cb) => {
+    if (!socket.data.isAdmin || typeof key !== 'string') return;
+    delete globalLoot[key];
+    const ex = lootExcluded();
+    if (!ex.includes(key)) ex.push(key);
+    persist.markLootDirty(() => globalLoot);
+    if (typeof cb === 'function') cb({ ok: true });
+  });
+  socket.on('adminLootRestoreRoom', ({ key } = {}, cb) => {
+    if (!socket.data.isAdmin || typeof key !== 'string') return;
+    globalLoot._x = lootExcluded().filter((k) => k !== key);
+    // 若房間還在，馬上把目前資料重新算進來
+    const r = Array.from(rooms.values()).find((x) => roomShort(x) === key);
+    if (r) Object.keys(DROP_ITEMS).forEach((img) => updateGlobalLoot(r, img));
+    persist.markLootDirty(() => globalLoot);
+    if (typeof cb === 'function') cb({ ok: true });
+  });
+  socket.on('adminLootCsv', (cb) => {
+    if (typeof cb !== 'function' || !socket.data.isAdmin) return;
+    cb({ csv: lootCsv() });
+  });
+  socket.on('adminClearLootStats', async (cb) => {
+    if (!socket.data.isAdmin) return;
+    globalLoot = {};
+    try { await persist.clearLootStats(); } catch (e) { console.error('[保存] 清空戰利品統計失敗：', e.message); }
+    if (typeof cb === 'function') cb({ ok: true });
+  });
+
   // 清空「時間點」紀錄（隊長或管理者；隊長操作會寫進操作紀錄）
   socket.on('clearKillPoints', (cb) => {
     const room = getRoom(socket);
@@ -1009,6 +1166,7 @@ io.on('connection', (socket) => {
     ch.startedBy = nickname;
     ch.standby = null;
     tab.killCount = (tab.killCount || 0) + 1;
+    if (tab.locked && tab.image) updateGlobalLoot(room, tab.image);
     addLog(room, `${nickname} 擊殺了「${tab.name}」CH${channelIndex + 1}，重新開始倒數`, 'start');
     broadcastChannels(room, [{ tabId: tab.id, channelIndex }]); // 只送這一個 CH 的變化
     io.to(room.id).emit('tab:meta', { tabId: tab.id, killCount: tab.killCount });
@@ -1132,6 +1290,7 @@ function serializeRoom(room) {
     captainMuted: Array.from(room.captainMuted.entries()),
     log: room.activityLog.slice(0, SAVED_LOG_LIMIT),
     kp: room.killPoints,
+    loot: room.loot || {},
     // CH 只存非待機的（大部分是待機），讓資料很小
     tabs: room.tabs.map((t) => {
       const ch = {};
@@ -1152,6 +1311,7 @@ function restoreRoom(data) {
   room.captainMuted = new Map(data.captainMuted || []);
   room.activityLog = Array.isArray(data.log) ? data.log : [];
   room.killPoints = Array.isArray(data.kp) ? data.kp.slice(0, MAX_KILL_POINTS) : [];
+  room.loot = data.loot && typeof data.loot === 'object' ? data.loot : {};
 
   const savedTabs = Array.isArray(data.tabs) ? data.tabs : [];
   const fillChannels = (tab, saved) => {
@@ -1215,6 +1375,7 @@ async function start() {
       console.log(`[保存] 已從 Upstash 讀回 ${rooms.size} 間房間`);
       try {
         globalKillPoints = await persist.loadKillPoints();
+        globalLoot = (await persist.loadLootStats()) || {};
         console.log(`[保存] 已讀回 ${globalKillPoints.length} 筆全站時間點紀錄`);
       } catch (e) {
         console.error('[保存] 讀取時間點統計失敗：', e.message);

@@ -146,6 +146,11 @@
     statsBtn.title = '所有房間按「擊殺」的時間點，統計五分區間 / 四分區間';
     statsBtn.addEventListener('click', openKillStats);
     panel.appendChild(statsBtn);
+    const lootBtn = el('button', 'admin-stats-btn', '🎁 全站戰利品統計');
+    lootBtn.title = '擊殺 50 次以上的房間，各王的擊殺數與記錄到的戰利品';
+    lootBtn.style.marginLeft = '6px';
+    lootBtn.addEventListener('click', openLootStats);
+    panel.appendChild(lootBtn);
     const topBar = document.querySelector('.top-bar');
     topBar.parentNode.insertBefore(panel, topBar.nextSibling);
 
@@ -397,6 +402,99 @@
       document.body.appendChild(kpsOverlay);
     });
   }
+  // ---------- 全站戰利品統計 ----------
+  function openLootStats() {
+    if (!A.isAdmin) return;
+    A.socket.emit('adminLootStats', (st) => {
+      if (!st) return;
+      if (kpsOverlay) kpsOverlay.remove();
+      kpsOverlay = el('div', 'kps-overlay');
+      kpsOverlay.addEventListener('click', (e) => { if (e.target === kpsOverlay) closeKillStats(); });
+      const box = el('div', 'kps-box');
+      const head = el('div', 'kps-head');
+      head.appendChild(el('h3', '', '🎁 全站戰利品統計'));
+      const refresh = el('button', '', '重新整理'); refresh.addEventListener('click', openLootStats);
+      const dl = el('button', '', '下載 CSV');
+      dl.addEventListener('click', () => A.socket.emit('adminLootCsv', (res) => {
+        if (!res || typeof res.csv !== 'string') return;
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([res.csv], { type: 'text/csv;charset=utf-8' }));
+        const d = new Date(); const p = (n) => String(n).padStart(2, '0');
+        a.download = `MSCtimer-戰利品-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}.csv`;
+        document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+      }));
+      const clr = el('button', 'danger', '清空統計');
+      clr.addEventListener('click', () => {
+        if (!confirm('確定要清空「全站」戰利品統計嗎？此動作無法復原（各房間自己的戰利品紀錄不受影響）。')) return;
+        A.socket.emit('adminClearLootStats', () => { showToast('已清空全站戰利品統計'); openLootStats(); });
+      });
+      const close = el('button', '', '關閉'); close.addEventListener('click', closeKillStats);
+      [refresh, dl, clr, close].forEach((b) => head.appendChild(b));
+      box.appendChild(head);
+      const body = el('div', 'kps-body');
+      body.appendChild(el('div', 'kps-summary', `這是「全站」合計：所有房間中，某隻王擊殺達 ${st.minKills} 次以上的房間都會計入（目前 ${st.rooms} 間）。掉落率 = 記錄到的次數 ÷ 總擊殺次數，取決於大家有沒有確實記錄。發現有房間亂點，可在最下方「各房間明細」刪除並排除該房間。`));
+      if (!st.bosses.length) body.appendChild(el('div', 'kps-summary', '目前還沒有達到門檻的房間。'));
+      st.bosses.forEach((b) => {
+        const t = el('table', 'kps-table');
+        t.style.marginBottom = '14px';
+        const h = el('tr');
+        const th = el('th', '', `${b.name}　｜　${b.rooms} 間房間　｜　總擊殺 ${b.kills} 次　｜　記錄 ${b.items.reduce((a, x) => a + x.count, 0)} 件`);
+        th.colSpan = 4; th.style.textAlign = 'left'; th.style.color = '#fde68a';
+        h.appendChild(th); t.appendChild(h);
+        const h2 = el('tr');
+        ['', '道具', '記錄次數', '掉落率'].forEach((x) => h2.appendChild(el('th', '', x)));
+        t.appendChild(h2);
+        if (!b.items.length) { const tr = el('tr'); const td = el('td', '', '還沒有記錄任何戰利品'); td.colSpan = 4; tr.appendChild(td); t.appendChild(tr); }
+        b.items.forEach((it) => {
+          const tr = el('tr');
+          const ic = el('td');
+          const img = document.createElement('img'); img.src = `drops/icons/${it.id}.png`; img.style.maxWidth = '28px'; img.style.maxHeight = '28px'; img.onerror = () => img.remove();
+          ic.appendChild(img); tr.appendChild(ic);
+          tr.appendChild(el('td', 'name', it.name));
+          tr.appendChild(el('td', 'five', String(it.count)));
+          tr.appendChild(el('td', '', b.kills ? (it.count / b.kills * 100).toFixed(2) + '%' : '-'));
+          t.appendChild(tr);
+        });
+        body.appendChild(t);
+      });
+      // 各房間明細：可單獨刪除（並排除，之後不再計入）
+      const rt = el('table', 'kps-table');
+      const rh = el('tr'); const rth = el('th', '', `各房間明細（${st.roomList.length} 間）`); rth.colSpan = 3; rth.style.textAlign = 'left'; rth.style.color = '#93c5fd'; rh.appendChild(rth); rt.appendChild(rh);
+      const rh2 = el('tr'); ['房間', '各王：擊殺／記錄件數', ''].forEach((x) => rh2.appendChild(el('th', '', x))); rt.appendChild(rh2);
+      if (!st.roomList.length) { const tr = el('tr'); const td = el('td', '', '沒有房間計入'); td.colSpan = 3; tr.appendChild(td); rt.appendChild(tr); }
+      st.roomList.forEach((r) => {
+        const tr = el('tr');
+        tr.appendChild(el('td', 'name', r.password ? `密碼 ${r.password}` : `代號 ${r.key}（房間已不存在）`));
+        tr.appendChild(el('td', 'kps-dist', r.bosses.map((b) => `${b.name}：${b.kills}／${b.items}`).join('　')));
+        const td = el('td');
+        const del = el('button', '', '刪除並排除');
+        del.style.cssText = 'border:1px solid #7f1d1d;background:transparent;color:#fca5a5;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:12px;';
+        del.addEventListener('click', () => {
+          if (!confirm(`確定要把「${r.password || r.key}」從全站戰利品統計刪除嗎？之後這間房間的紀錄也不會再計入（可在下方恢復）。`)) return;
+          A.socket.emit('adminLootRemoveRoom', { key: r.key }, () => { showToast('已刪除並排除該房間'); openLootStats(); });
+        });
+        td.appendChild(del); tr.appendChild(td); rt.appendChild(tr);
+      });
+      body.appendChild(rt);
+      if (st.excluded && st.excluded.length) {
+        const et = el('table', 'kps-table'); et.style.marginTop = '12px';
+        const eh = el('tr'); const eth = el('th', '', `已排除的房間（${st.excluded.length} 間，不計入統計）`); eth.colSpan = 2; eth.style.textAlign = 'left'; eth.style.color = '#fca5a5'; eh.appendChild(eth); et.appendChild(eh);
+        st.excluded.forEach((r) => {
+          const tr = el('tr');
+          tr.appendChild(el('td', 'name', r.password ? `密碼 ${r.password}` : `代號 ${r.key}`));
+          const td = el('td'); const rs = el('button', '', '恢復計入');
+          rs.style.cssText = 'border:1px solid #475569;background:transparent;color:var(--text);border-radius:5px;padding:2px 8px;cursor:pointer;font-size:12px;';
+          rs.addEventListener('click', () => A.socket.emit('adminLootRestoreRoom', { key: r.key }, () => { showToast('已恢復計入'); openLootStats(); }));
+          td.appendChild(rs); tr.appendChild(td); et.appendChild(tr);
+        });
+        body.appendChild(et);
+      }
+      box.appendChild(body);
+      kpsOverlay.appendChild(box);
+      document.body.appendChild(kpsOverlay);
+    });
+  }
+
   function closeKillStats() { if (kpsOverlay) { kpsOverlay.remove(); kpsOverlay = null; } }
   function downloadKillCsv() {
     A.socket.emit('adminKillStatsCsv', (res) => {

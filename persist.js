@@ -28,6 +28,11 @@ const GLOBAL_KP_KEY = PREFIX + 'killpoints';
 const GLOBAL_KP_MAX = 20000;
 let pendingKp = []; // 還沒寫進 Upstash 的紀錄（JSON 字串）
 
+// 全站「戰利品」統計（管理者用）：擊殺 50 次以上的房間，各王的擊殺數＋掉落紀錄，整份存成一個 JSON
+const GLOBAL_LOOT_KEY = PREFIX + 'lootstats';
+let lootGetter = null;   // () => 目前的全站統計物件
+let lootDirty = false;
+
 async function call(cmd) {
   const res = await fetch(URL_, {
     method: 'POST',
@@ -88,12 +93,14 @@ function markDirty(room) {
 }
 
 async function flush() {
-  if (!ENABLED || (dirty.size === 0 && pendingKp.length === 0)) return;
+  if (!ENABLED || (dirty.size === 0 && pendingKp.length === 0 && !lootDirty)) return;
   const rooms = Array.from(dirty.values());
   dirty.clear();
   const kps = pendingKp;
   pendingKp = [];
   const cmds = [];
+  const lootWas = lootDirty;
+  if (lootDirty && lootGetter) { cmds.push(['SET', GLOBAL_LOOT_KEY, JSON.stringify(lootGetter())]); lootDirty = false; }
   if (kps.length) {
     cmds.push(['RPUSH', GLOBAL_KP_KEY, ...kps]);
     cmds.push(['LTRIM', GLOBAL_KP_KEY, String(-GLOBAL_KP_MAX), '-1']);
@@ -108,6 +115,7 @@ async function flush() {
     console.error('[保存] 寫入失敗，稍後重試：', e.message);
     rooms.forEach((r) => { if (!dirty.has(r.id)) dirty.set(r.id, r); });
     pendingKp = kps.concat(pendingKp);
+    if (lootWas) lootDirty = true;
     if (!timer) timer = setTimeout(() => { timer = null; flush().catch(() => {}); }, 15000);
   }
 }
@@ -143,4 +151,21 @@ async function clearKillPoints() {
   await call(['DEL', GLOBAL_KP_KEY]);
 }
 
-module.exports = { ENABLED, init, loadAll, markDirty, flush, removeRoom, pushKillPoint, loadKillPoints, clearKillPoints, GLOBAL_KP_MAX, loadedFromLegacy: false };
+// 全站戰利品統計：標記待存（跟房間一起批次寫入）、讀回、清空
+function markLootDirty(getter) {
+  if (!ENABLED) return;
+  lootGetter = getter; lootDirty = true;
+  if (!timer) timer = setTimeout(() => { timer = null; flush().catch(() => {}); }, SAVE_DELAY_MS);
+}
+async function loadLootStats() {
+  if (!ENABLED) return null;
+  const v = await call(['GET', GLOBAL_LOOT_KEY]);
+  try { return v ? JSON.parse(v) : null; } catch (e) { return null; }
+}
+async function clearLootStats() {
+  if (!ENABLED) return;
+  lootDirty = false;
+  await call(['DEL', GLOBAL_LOOT_KEY]);
+}
+
+module.exports = { ENABLED, init, loadAll, markDirty, flush, removeRoom, pushKillPoint, loadKillPoints, clearKillPoints, markLootDirty, loadLootStats, clearLootStats, GLOBAL_KP_MAX, loadedFromLegacy: false };
