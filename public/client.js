@@ -1185,7 +1185,6 @@ function renderStatusColumn(container, rows, emptyText, showTabName) {
       e.stopPropagation();
       if (!ensureNickname()) return;
       socket.emit('channelKillNow', { tabId: r.tabId, channelIndex: r.channelIndex });
-      playKillSound(r.tabImage);
     });
     row.appendChild(killBtn);
 
@@ -1745,11 +1744,13 @@ const BOSS_SOUNDS = {
   'snow-fur-monster.png': 'snow-fur-monster'
 };
 const killAudioCache = {};
-function playKillSound(image) {
+// 房間裡任何人按「擊殺」，伺服器會通知整個房間播放（各自依自己的音效設定與音量）
+socket.on('killSound', ({ image, kind } = {}) => playKillSound(image, kind));
+function playKillSound(image, kindFromServer) {
   if (!killSoundOn) return;
   const key = image && BOSS_SOUNDS[String(image).split('/').pop()];
   if (!key) return; // 自訂的王沒有音效
-  const kind = Math.random() < 0.8 ? 'damage' : 'die';
+  const kind = kindFromServer === 'die' || kindFromServer === 'damage' ? kindFromServer : (Math.random() < 0.8 ? 'damage' : 'die');
   const src = `/sounds/${key}-${kind}.mp3`;
   try {
     if (!killAudioCache[src]) { killAudioCache[src] = new Audio(src); killAudioCache[src].preload = 'auto'; }

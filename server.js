@@ -1012,6 +1012,8 @@ io.on('connection', (socket) => {
     addLog(room, `${nickname} 擊殺了「${tab.name}」CH${channelIndex + 1}，重新開始倒數`, 'start');
     broadcastChannels(room, [{ tabId: tab.id, channelIndex }]); // 只送這一個 CH 的變化
     io.to(room.id).emit('tab:meta', { tabId: tab.id, killCount: tab.killCount });
+    // 擊殺音效：整個房間一起播放同一個音效（80% 受傷、20% 死亡；伺服器決定，大家聽到的一樣）
+    io.to(room.id).emit('killSound', { image: tab.image || null, kind: Math.random() < 0.8 ? 'damage' : 'die' });
   });
 
   // ---------- 待命：沒人待命時按下 → 顯示按的人的暱稱；已有人待命時再按一次 → 變回「待命」 ----------
