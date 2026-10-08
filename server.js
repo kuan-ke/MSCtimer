@@ -79,6 +79,21 @@ const SITE_VERSION = (() => {
   try { h.update(fs.readFileSync(path.join(__dirname, 'admin', 'admin.js'))); } catch (e) { /* ignore */ }
   return h.digest('hex').slice(0, 10);
 })();
+// 網站正式網址（Render 環境變數 SITE_URL，例如 https://msctimer.onrender.com；沒設定就用這次連線的網址）
+function siteUrl(req) {
+  const env = (process.env.SITE_URL || '').replace(/\/+$/, '');
+  if (env) return env;
+  const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0];
+  return `${proto}://${req.get('host')}`;
+}
+app.get('/robots.txt', (req, res) => {
+  res.type('text/plain').send(`User-agent: *\nAllow: /\nDisallow: /admin.js\n\nSitemap: ${siteUrl(req)}/sitemap.xml\n`);
+});
+app.get('/sitemap.xml', (req, res) => {
+  const today = new Date().toISOString().slice(0, 10);
+  res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>${siteUrl(req)}/</loc><lastmod>${today}</lastmod><changefreq>weekly</changefreq><priority>1.0</priority></url>\n</urlset>\n`);
+});
+
 app.get(['/', '/index.html'], (req, res) => {
   fs.readFile(INDEX_PATH, 'utf8', (err, html) => {
     if (err) return res.status(500).send('Server error');
@@ -87,6 +102,12 @@ app.get(['/', '/index.html'], (req, res) => {
       const tag = `<script src="/admin.js?k=${encodeURIComponent(req.query.admin)}"></script>\n`;
       html = html.replace('<script src="client.js"></script>', tag + '<script src="client.js"></script>');
     }
+    // 搜尋引擎：Google Search Console 驗證碼（Render 環境變數 GOOGLE_SITE_VERIFICATION）、正式網址
+    const extra = [];
+    if (process.env.GOOGLE_SITE_VERIFICATION) extra.push(`<meta name="google-site-verification" content="${String(process.env.GOOGLE_SITE_VERIFICATION).replace(/"/g, '')}" />`);
+    extra.push(`<link rel="canonical" href="${siteUrl(req)}/" />`);
+    extra.push(`<meta property="og:url" content="${siteUrl(req)}/" />`);
+    html = html.replace('</head>', extra.join('\n') + '\n</head>');
     html = html
       .replace('<script src="client.js"></script>', `<script src="client.js?v=${SITE_VERSION}"></script>`)
       .replace('href="style.css"', `href="style.css?v=${SITE_VERSION}"`);

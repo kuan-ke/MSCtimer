@@ -464,7 +464,7 @@ function buildTimerTable() {
   const p2 = (n) => String(n).padStart(2, '0');
   const stamp = `${d.getFullYear()}/${p2(d.getMonth() + 1)}/${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
   const fileStamp = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}`;
-  const lines = [`【楓之谷｜團隊野王計時器】房間 ${myRoomPassword || ''} 時間表`, `匯出時間：${stamp}`, ''];
+  const lines = [`【楓之谷經典版｜團隊野王計時器】房間 ${myRoomPassword || ''} 時間表`, `匯出時間：${stamp}`, ''];
   let total = 0;
   (tabs || []).forEach((tab) => {
     const items = [];
@@ -1569,7 +1569,7 @@ async function openPip() {
   }
 
   pipDoc = pipWindow.document;
-  pipDoc.title = '楓之谷｜團隊野王計時器';
+  pipDoc.title = '楓之谷經典版｜團隊野王計時器';
 
   // 套用跟主頁一樣的樣式表
   const link = pipDoc.createElement('link');
