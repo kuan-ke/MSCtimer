@@ -399,7 +399,7 @@ let DROPS = {};
 try { DROPS = JSON.parse(fs.readFileSync(path.join(__dirname, 'public', 'drops', 'drops.json'), 'utf8')); } catch (e) { console.error('[戰利品] 讀不到 drops.json：', e.message); }
 const DROP_ITEMS = {};
 Object.entries(DROPS).forEach(([img, b]) => { DROP_ITEMS[img] = new Map((b.drops || []).map((d) => [d.id, d.name])); });
-const LOOT_MIN_KILLS = 50; // 房間這隻王擊殺達 50 次以上，才算進全站戰利品統計
+const LOOT_MIN_KILLS = 10; // 房間這隻王擊殺達 10 次以上，才算進全站戰利品統計
 
 // 全站戰利品統計：{ 房間代號: { 王圖檔: { k: 擊殺數, i: { 道具編號: 次數 }, t: 更新時間 } } }
 let globalLoot = {};
@@ -1387,6 +1387,8 @@ async function start() {
       try {
         globalKillPoints = await persist.loadKillPoints();
         globalLoot = (await persist.loadLootStats()) || {};
+        // 門檻調整後，已經達標的房間啟動時就補進全站統計
+        rooms.forEach((r) => Object.keys(DROP_ITEMS).forEach((img) => updateGlobalLoot(r, img)));
         console.log(`[保存] 已讀回 ${globalKillPoints.length} 筆全站時間點紀錄`);
       } catch (e) {
         console.error('[保存] 讀取時間點統計失敗：', e.message);
