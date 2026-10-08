@@ -3,14 +3,21 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>楓之谷經典版｜團隊野王計時器</title>
+<title>MSCtimer｜楓之谷經典版｜團隊野王計時器</title>
 <meta name="description" content="楓之谷經典版（MapleStory Classic）團隊野王計時器：多人同步 60 頻道王重生倒數、重生區間提醒、擊殺紀錄、時間點統計、王的戰利品清單與掉落紀錄。免註冊，輸入房間密碼即可和隊友共用。" />
 <meta name="keywords" content="楓之谷經典版,MapleStory Classic,Artale,野王,王計時器,重生時間,紅寶王,樹妖王,巨居蟹,殭屍猴王,蘑菇王,殭屍蘑菇王,沼澤巨鱷,巴洛古,艾利傑,雪毛怪人,戰利品,掉落物" />
 <meta property="og:type" content="website" />
-<meta property="og:title" content="楓之谷經典版｜團隊野王計時器" />
+<meta property="og:title" content="MSCtimer｜楓之谷經典版｜團隊野王計時器" />
 <meta property="og:description" content="多人同步 60 頻道野王重生倒數、提醒、擊殺與戰利品紀錄，輸入房間密碼即可和隊友共用。" />
-<meta property="og:image" content="/images/mushroom-king.png" />
+<meta property="og:image" content="/images/og-image.png?v=2" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:card" content="summary_large_image" />
 <meta name="theme-color" content="#0f172a" />
+<link rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48" />
+<link rel="icon" type="image/png" sizes="32x32" href="images/favicon-32.png" />
+<link rel="icon" type="image/png" sizes="192x192" href="images/icon-192.png" />
+<link rel="apple-touch-icon" href="images/apple-touch-icon.png" />
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -19,16 +26,16 @@
 
   <header class="top-bar">
     <div class="top-bar-left">
-      <h1>楓之谷經典版｜團隊野王計時器</h1>
+      <h1><img src="images/icon-192.png" class="site-logo" alt="" width="30" height="30" />MSCtimer｜楓之谷經典版｜團隊野王計時器</h1>
       <span id="captainInfo" class="captain-info hidden"></span>
       <div id="onlineUsersBar" class="online-users-bar">
-        <span class="online-label">🟢 線上 <span id="onlineCount">0</span> 人：</span>
-        <span id="onlineNames" class="online-names"></span>
+        <button type="button" id="onlineToggle" class="online-toggle" title="點一下查看線上名單">🟢 線上 <span id="onlineCount">0</span> 人 ▾</button>
+        <div id="onlinePop" class="online-pop hidden"><div class="online-pop-title">線上名單</div><span id="onlineNames" class="online-names"></span></div>
       </div>
     </div>
     <div class="top-bar-right">
-      <button id="importBtn" class="top-btn" title="匯入本網站匯出的計時（只有隊長可以使用）">📥 匯入計時</button>
-      <button id="exportBtn" class="top-btn" title="匯出目前房間的計時：密鑰（可匯入）或文字時間表（只有隊長可以使用）">📋 匯出計時</button>
+      <button id="importBtn" class="top-btn" title="匯入本網站匯出的計時（只有隊長可以使用）">📥 匯入</button>
+      <button id="exportBtn" class="top-btn" title="匯出目前房間的計時：密鑰（可匯入）或文字時間表（只有隊長可以使用）">📋 匯出</button>
       <div class="sound-wrap">
         <button id="soundBtn" class="top-btn" title="音效設定：擊殺音效、提示音開關">🔊 音效</button>
         <div id="soundPop" class="sound-pop hidden">

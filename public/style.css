@@ -952,3 +952,37 @@ body {
 .legend-wrap { flex-shrink: 0; }
 .legend-item { white-space: nowrap; }
 .range-panel { flex: 1 1 auto; min-width: 0; }
+
+/* ---------- 上方工具列維持一列 ---------- */
+.top-bar { flex-wrap: nowrap; }
+.top-bar-left { flex-wrap: nowrap; flex-shrink: 1; min-width: 0; }
+.top-bar-right { flex-shrink: 0; gap: 6px; }
+.top-bar h1 { font-size: 17px; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.top-bar .top-btn { padding: 4px 9px; white-space: nowrap; }
+.my-nickname, .room-badge, .conn-status { white-space: nowrap; }
+.online-users-bar { position: relative; flex-shrink: 0; }
+.online-toggle { border: 1px solid #334155; background: #0f172a; color: #86efac; border-radius: 999px; padding: 3px 10px; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.online-toggle:hover, .online-toggle.active { border-color: #22c55e; background: #052e16; }
+.online-pop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 60; width: max-content; min-width: 260px; max-width: 460px; background: #0b1222; border: 1px solid #334155; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.5); padding: 8px 10px; font-size: 13px; }
+.online-pop.hidden { display: none; }
+.online-pop-title { font-size: 12px; font-weight: 700; color: var(--text-dim); margin-bottom: 4px; }
+@media (max-width: 1180px) { .top-bar { flex-wrap: wrap; } .top-bar-right { flex-wrap: wrap; } }
+
+/* 隊長圖示 */
+.cap-icon { height: 1.25em; width: auto; vertical-align: -0.28em; margin: 0 2px; image-rendering: pixelated; }
+.captain-info { display: inline-flex; align-items: center; gap: 4px; }
+.captain-info .cap-icon { margin: 0; }
+
+/* 被禁止操作：隱藏所有計時器 */
+body.is-muted .main-row,
+body.is-muted #importBtn,
+body.is-muted #exportBtn,
+body.is-muted #pipBtn { display: none !important; }
+.muted-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; min-height: 60vh; text-align: center; padding: 24px 16px; }
+.muted-screen .muted-icon { font-size: 56px; }
+.muted-screen .muted-title { font-size: 22px; font-weight: 700; color: #fca5a5; }
+.muted-screen .muted-desc { font-size: 15px; color: #94a3b8; max-width: 420px; line-height: 1.6; }
+
+/* 標題前的雪毛怪人小圖 */
+.top-bar h1 { display: inline-flex; align-items: center; gap: 6px; }
+.top-bar h1 .site-logo { width: 30px; height: 30px; object-fit: contain; flex-shrink: 0; }

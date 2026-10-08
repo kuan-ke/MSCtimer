@@ -84,6 +84,15 @@ let joined = false;
 let manualJoinPending = false; // 使用者手動按「進入房間」（用來決定要不要顯示「已建立 / 已進入」提示）
 let showRoomPassword = false;
 
+// 隊長圖示（取代原本的 👑）
+function captainIcon(doc) {
+  const img = (doc || document).createElement('img');
+  img.src = 'images/captain.png';
+  img.className = 'cap-icon';
+  img.alt = '隊長';
+  img.title = '隊長';
+  return img;
+}
 function storageGet(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
 function storageSet(key, val) { try { localStorage.setItem(key, val); } catch (e) { /* ignore */ } }
 function storageRemove(key) { try { localStorage.removeItem(key); } catch (e) { /* ignore */ } }
@@ -210,7 +219,9 @@ togglePasswordBtn.addEventListener('click', () => {
 });
 
 function updateNicknameDisplay() {
-  myNicknameDisplay.textContent = myNickname ? `您的暱稱：${myNickname}${amCaptain && joined ? '（👑 隊長）' : ''}` : '';
+  myNicknameDisplay.textContent = myNickname ? `👤 ${myNickname}` : '';
+  if (myNickname && amCaptain && joined) myNicknameDisplay.appendChild(captainIcon());
+  myNicknameDisplay.title = myNickname ? `您的暱稱：${myNickname}${amCaptain && joined ? '（隊長）' : ''}` : '';
 }
 
 function updateRoomDisplay() {
@@ -255,7 +266,7 @@ socket.on('join:ack', ({ nickname, created, captain }) => {
   hideNicknameOverlay();
   if (manualJoinPending) {
     showToast(created
-      ? (amCaptain ? '已建立新房間，你是這間房間的隊長 👑，把密碼分享給隊友就能一起使用' : '已建立新房間，把密碼分享給隊友就能一起使用')
+      ? (amCaptain ? '已建立新房間，你是這間房間的隊長，把密碼分享給隊友就能一起使用' : '已建立新房間，把密碼分享給隊友就能一起使用')
       : '已進入房間');
   }
   manualJoinPending = false;
@@ -304,11 +315,45 @@ socket.on('removedByAdmin', () => {
   showNicknameOverlay('您已被管理者移出此房間，請使用其他暱稱，或輸入其他房間密碼', { unlockNickname: true });
 });
 
+// 被隊長或管理者移出（沒有封鎖）：保留暱稱，可以重新輸入密碼再進來
+socket.on('kicked', ({ by } = {}) => {
+  amCaptain = false;
+  joined = false;
+  updateNicknameDisplay();
+  updateRoomDisplay();
+  showNicknameOverlay(`您已被${by || '隊長'}移出此房間，可以重新進入，或輸入其他房間密碼`, { keepPassword: true });
+});
+
 socket.on('error:needNickname', () => {
   showNicknameOverlay();
 });
 
-socket.on('error:muted', () => showToast('您已被管理者禁止操作'));
+socket.on('error:muted', () => showToast('您已被禁止操作'));
+
+// 被禁止操作：看不到任何計時器（伺服器也不會再送計時資料），只顯示提示畫面
+var amMuted = false;
+socket.on('muted:state', ({ muted, by } = {}) => {
+  amMuted = !!muted;
+  document.body.classList.toggle('is-muted', amMuted);
+  let screen = document.getElementById('mutedScreen');
+  if (amMuted) {
+    if (!screen) {
+      screen = document.createElement('div');
+      screen.id = 'mutedScreen';
+      screen.className = 'muted-screen';
+      const mainRow = document.querySelector('.main-row');
+      mainRow.parentNode.insertBefore(screen, mainRow);
+    }
+    screen.innerHTML = '';
+    const icon = document.createElement('div'); icon.className = 'muted-icon'; icon.textContent = '🚫';
+    const t = document.createElement('div'); t.className = 'muted-title'; t.textContent = `您已被${by || '隊長'}禁止操作`;
+    const d = document.createElement('div'); d.className = 'muted-desc'; d.textContent = '禁止期間無法查看計時器，也無法進行任何操作。請聯絡隊長解除，解除後畫面會自動恢復。';
+    screen.append(icon, t, d);
+    if (typeof pipWindow !== 'undefined' && pipWindow) { try { pipWindow.close(); } catch (e) { /* ignore */ } }
+  } else if (screen) {
+    screen.remove();
+  }
+});
 socket.on('error:toast', (msg) => showToast(msg));
 
 function showToast(msg) {
@@ -327,16 +372,20 @@ socket.on('users:update', (list) => {
   renderOnlineUsersBar();
 });
 
-// 線上名單：隊長名字後面有 👑；自己是隊長時，每個名字旁邊有 ✎ 可以改暱稱（包含自己）
+// 線上名單：隊長名字後面有隊長圖示；自己是隊長時，每個名字旁邊有 ✎ 可以改暱稱（包含自己）
 function renderOnlineUsersBar() {
   onlineCountEl.textContent = onlineUsers.length;
+  const tgl = document.getElementById('onlineToggle');
+  if (tgl) tgl.title = onlineUsers.map((u) => u.name + (u.captain ? '（隊長）' : '')).join('、') || '目前沒有人在線';
   onlineNamesEl.innerHTML = '';
   onlineUsers.forEach((u, i) => {
     if (i > 0) onlineNamesEl.appendChild(document.createTextNode('、'));
     const isMutedByMe = amCaptain && captainMutedList.some((n) => n.toLowerCase() === u.name.toLowerCase());
     const span = document.createElement('span');
     span.className = 'online-name' + (isMutedByMe ? ' muted' : '');
-    span.textContent = u.name + (u.captain ? ' 👑' : '') + (isMutedByMe ? '（已禁止）' : '');
+    span.textContent = u.name;
+    if (u.captain) span.appendChild(captainIcon());
+    if (isMutedByMe) span.appendChild(document.createTextNode('（已禁止）'));
     if (u.captain) span.title = '隊長';
     onlineNamesEl.appendChild(span);
     if (amCaptain && !u.captain) {
@@ -349,6 +398,14 @@ function renderOnlineUsersBar() {
         else if (confirm(`確定要禁止「${u.name}」在這間房間進行任何操作嗎？`)) socket.emit('captainMute', { nickname: u.name });
       });
       onlineNamesEl.appendChild(muteBtn);
+      const kickBtn = document.createElement('button');
+      kickBtn.className = 'rename-btn';
+      kickBtn.textContent = '🚪';
+      kickBtn.title = `將「${u.name}」移出房間（之後仍可用同暱稱再進來）`;
+      kickBtn.addEventListener('click', () => {
+        if (confirm(`確定要將「${u.name}」移出房間嗎？\n（對方之後仍可用同樣暱稱再進入；要讓他不能操作請用 🚫 禁止操作）`)) socket.emit('captainKick', { targetSocketId: u.id });
+      });
+      onlineNamesEl.appendChild(kickBtn);
     }
     if (amCaptain) {
       const btn = document.createElement('button');
@@ -400,7 +457,9 @@ socket.on('room:info', ({ captainName }) => {
 function renderCaptainInfo() {
   const captainInfoEl = document.getElementById('captainInfo');
   if (joined && roomCaptainName) {
-    captainInfoEl.textContent = `👑 此房間隊長為：${roomCaptainName}`;
+    captainInfoEl.textContent = '';
+    captainInfoEl.appendChild(captainIcon());
+    captainInfoEl.appendChild(document.createTextNode(`隊長：${roomCaptainName}`));
     captainInfoEl.classList.remove('hidden');
   } else {
     captainInfoEl.classList.add('hidden');
@@ -464,7 +523,7 @@ function buildTimerTable() {
   const p2 = (n) => String(n).padStart(2, '0');
   const stamp = `${d.getFullYear()}/${p2(d.getMonth() + 1)}/${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
   const fileStamp = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}`;
-  const lines = [`【楓之谷經典版｜團隊野王計時器】房間 ${myRoomPassword || ''} 時間表`, `匯出時間：${stamp}`, ''];
+  const lines = [`【MSCtimer｜楓之谷經典版｜團隊野王計時器】房間 ${myRoomPassword || ''} 時間表`, `匯出時間：${stamp}`, ''];
   let total = 0;
   (tabs || []).forEach((tab) => {
     const items = [];
@@ -1539,6 +1598,7 @@ let pipStatusAppearingEl = null;
 pipBtn.addEventListener('click', openPip);
 
 async function openPip() {
+  if (amMuted) { showToast('您已被禁止操作'); return; }
   if (!('documentPictureInPicture' in window)) {
     alert('您的瀏覽器不支援子母畫面功能，請用電腦版 Chrome 或 Edge 開啟這個網站再試一次。');
     return;
@@ -1569,7 +1629,7 @@ async function openPip() {
   }
 
   pipDoc = pipWindow.document;
-  pipDoc.title = '楓之谷經典版｜團隊野王計時器';
+  pipDoc.title = 'MSCtimer｜楓之谷經典版｜團隊野王計時器';
 
   // 套用跟主頁一樣的樣式表
   const link = pipDoc.createElement('link');
@@ -1920,6 +1980,16 @@ function bindLoot(d) {
   renderLootInto(d);
 }
 bindLoot(document);
+
+// 線上名單：收在「🟢 線上 N 人 ▾」裡，點開才顯示（讓上方工具列維持一列）
+(function bindOnlinePop() {
+  const t = document.getElementById('onlineToggle');
+  const p = document.getElementById('onlinePop');
+  if (!t || !p) return;
+  t.addEventListener('click', (e) => { e.stopPropagation(); p.classList.toggle('hidden'); t.classList.toggle('active', !p.classList.contains('hidden')); });
+  p.addEventListener('click', (e) => e.stopPropagation());
+  document.addEventListener('click', () => { p.classList.add('hidden'); t.classList.remove('active'); });
+})();
 
 // 子母畫面用的「新增戰利品」挑選視窗（在該視窗內開啟；點道具記錄一次）
 function openLootPicker(d) {

@@ -107,6 +107,8 @@ app.get(['/', '/index.html'], (req, res) => {
     if (process.env.GOOGLE_SITE_VERIFICATION) extra.push(`<meta name="google-site-verification" content="${String(process.env.GOOGLE_SITE_VERIFICATION).replace(/"/g, '')}" />`);
     extra.push(`<link rel="canonical" href="${siteUrl(req)}/" />`);
     extra.push(`<meta property="og:url" content="${siteUrl(req)}/" />`);
+    // 分享預覽圖要用完整網址，Discord / LINE / FB 才抓得到
+    html = html.replace('<meta property="og:image" content="/images/', `<meta property="og:image" content="${siteUrl(req)}/images/`);
     html = html.replace('</head>', extra.join('\n') + '\n</head>');
     html = html
       .replace('<script src="client.js"></script>', `<script src="client.js?v=${SITE_VERSION}"></script>`)
@@ -286,7 +288,7 @@ function sameClientSocketsInRoom(room, targetSocketId) {
 function broadcastState(room) {
   room.lastActive = Date.now();
   persist.markDirty(room);
-  io.to(room.id).emit('state:update', { tabs: room.tabs, serverTime: Date.now() });
+  io.to(VIEW(room.id)).emit('state:update', { tabs: room.tabs, serverTime: Date.now() });
   scheduleAdminRooms();
 }
 
@@ -300,7 +302,7 @@ function broadcastChannels(room, refs) {
   });
   if (changes.length === 0) return;
   persist.markDirty(room);
-  io.to(room.id).emit('channels:update', { changes, serverTime: Date.now() });
+  io.to(VIEW(room.id)).emit('channels:update', { changes, serverTime: Date.now() });
   scheduleAdminRooms();
 }
 
@@ -346,8 +348,45 @@ function scheduleAdminRooms() {
 }
 
 function isMuted(room, socket) {
+  if (socket.data.isAdmin) return false;
   const n = normalizeName(socket.data.nickname);
   return room.mutedNicknames.has(n) || room.captainMuted.has(n);
+}
+
+// 計時相關的資料（分頁、CH、擊殺、時間點、戰利品、操作紀錄、音效）只送到「可觀看」頻道；
+// 被禁止操作的人不在這個頻道裡，所以完全收不到任何計時資料
+function VIEW(roomId) { return roomId + '|view'; }
+
+// 依目前禁止狀態，把 socket 放進 / 移出可觀看頻道，並同步畫面
+function applyView(room, s, force) {
+  const muted = isMuted(room, s);
+  const viewing = s.data.viewing === room.id;
+  if (!force && muted === !viewing) return;
+  if (muted) {
+    s.leave(VIEW(room.id));
+    s.data.viewing = null;
+    const by = room.mutedNicknames.has(normalizeName(s.data.nickname)) ? '管理者' : '隊長';
+    s.emit('muted:state', { muted: true, by });
+    s.emit('state:init', { tabs: [], serverTime: Date.now() });
+    s.emit('log:init', []);
+    s.emit('killpoint:init', []);
+    s.emit('loot:init', {});
+  } else {
+    s.join(VIEW(room.id));
+    s.data.viewing = room.id;
+    s.emit('muted:state', { muted: false });
+    s.emit('state:init', { tabs: room.tabs, serverTime: Date.now() });
+    s.emit('log:init', room.activityLog);
+    s.emit('killpoint:init', room.killPoints);
+    s.emit('loot:init', room.loot || {});
+  }
+}
+
+// 禁止名單有變動時，重新檢查房間內每個人
+function refreshViews(room) {
+  for (const [, s] of io.sockets.sockets) {
+    if (s.data.roomId === room.id) applyView(room, s, false);
+  }
 }
 
 // 依經過時間決定 CH 狀態：最小值前「倒數中」→ 最小值～最大值「重生區間」→ 超過最大值「出現中」
@@ -366,6 +405,7 @@ function transferNameState(room, targetClientId, oldName, newName) {
     if (map.has(o)) { map.delete(o); map.set(n, newName); }
   }
   broadcastAdminMutedList(room);
+  refreshViews(room);
   if (room.captainClientId && targetClientId === room.captainClientId) room.captainName = newName;
   broadcastRoomInfo(room);
 }
@@ -411,7 +451,7 @@ function addLog(room, message, type) {
   };
   room.activityLog.unshift(entry);
   if (room.activityLog.length > MAX_LOG) room.activityLog.length = MAX_LOG;
-  io.to(room.id).emit('log:new', entry);
+  io.to(VIEW(room.id)).emit('log:new', entry);
 }
 
 // ---------- 戰利品 ----------
@@ -539,7 +579,7 @@ function addKillPoint(room, data) {
   room.killPoints.unshift(entry);
   if (room.killPoints.length > MAX_KILL_POINTS) room.killPoints.length = MAX_KILL_POINTS;
   persist.markDirty(room);
-  io.to(room.id).emit('killpoint:new', entry);
+  io.to(VIEW(room.id)).emit('killpoint:new', entry);
 }
 
 function roomHasActiveChannels(room) {
@@ -551,6 +591,8 @@ function leaveCurrentRoom(socket) {
   const room = getRoom(socket);
   if (!room) return;
   socket.leave(room.id);
+  socket.leave(VIEW(room.id));
+  socket.data.viewing = null;
   room.connectedUsers.delete(socket.id);
   room.lastActive = Date.now();
   socket.data.roomId = null;
@@ -585,7 +627,7 @@ function tick() {
             ch.state = target;
             changed.push({ tabId: tab.id, channelIndex: idx });
             // 進入重生區間、進入出現中都會提醒
-            io.to(room.id).emit('channelAlert', { tabId: tab.id, channelIndex: idx, kind: target });
+            io.to(VIEW(room.id)).emit('channelAlert', { tabId: tab.id, channelIndex: idx, kind: target });
           }
         }
       });
@@ -677,10 +719,8 @@ io.on('connection', (socket) => {
     if (created) persist.markDirty(room);
 
     socket.emit('join:ack', { nickname: trimmedName, created, captain: isCaptain(room, socket) });
-    socket.emit('state:init', { tabs: room.tabs, serverTime: Date.now() });
-    socket.emit('log:init', room.activityLog);
-    socket.emit('killpoint:init', room.killPoints);
-    socket.emit('loot:init', room.loot || {});
+    socket.data.viewing = null;
+    applyView(room, socket, true);
     if (socket.data.isAdmin) socket.emit('admin:mutedList', Array.from(room.mutedNicknames.values()));
     if (isCaptain(room, socket)) socket.emit('captain:muted', Array.from(room.captainMuted.values()));
     broadcastRoomInfo(room);
@@ -690,7 +730,7 @@ io.on('connection', (socket) => {
   // ---------- 隊長：禁止 / 解除禁止隊員操作（只限這間房間，以暱稱判斷，離線再回來仍有效） ----------
   socket.on('captainMute', ({ nickname } = {}) => {
     const room = getRoom(socket);
-    if (!room || !isCaptain(room, socket) || typeof nickname !== 'string' || !nickname.trim()) return;
+    if (!room || !isCaptain(room, socket) || isMuted(room, socket) || typeof nickname !== 'string' || !nickname.trim()) return;
     const n = normalizeName(nickname);
     if (n === normalizeName(socket.data.nickname)) return; // 不能禁止自己
     // 只能禁止目前在房間裡的隊員（不含隱身的管理者）
@@ -698,24 +738,26 @@ io.on('connection', (socket) => {
     if (!member) return;
     room.captainMuted.set(n, member.name);
     sendCaptainMuted(room);
+    refreshViews(room);
     addLog(room, `隊長「${socket.data.nickname}」禁止「${member.name}」進行操作`, 'admin');
   });
 
   socket.on('captainUnmute', ({ nickname } = {}) => {
     const room = getRoom(socket);
-    if (!room || !isCaptain(room, socket) || typeof nickname !== 'string') return;
+    if (!room || !isCaptain(room, socket) || isMuted(room, socket) || typeof nickname !== 'string') return;
     const n = normalizeName(nickname);
     const original = room.captainMuted.get(n);
     if (!original) return;
     room.captainMuted.delete(n);
     sendCaptainMuted(room);
+    refreshViews(room);
     addLog(room, `隊長「${socket.data.nickname}」解除了「${original}」的操作禁止`, 'admin');
   });
 
   // 產生一組隨機房間密碼（符合規則，且不會跟目前已存在的房間重複）
   // ---------- 計時匯出 / 匯入（隊長才能用；隱身的管理者也能用，但不寫進操作紀錄） ----------
   function canTransferTimers(room) {
-    return !!room && (socket.data.isAdmin || isCaptain(room, socket));
+    return !!room && (socket.data.isAdmin || isCaptain(room, socket)) && !isMuted(room, socket);
   }
 
   // 先問一下有沒有權限（按鈕大家都看得到，按下去才檢查）
@@ -831,7 +873,7 @@ io.on('connection', (socket) => {
   // ---------- 隊長：修改自己或同房間其他人在此房間的暱稱 ----------
   socket.on('captainRename', ({ targetSocketId, newName } = {}) => {
     const room = getRoom(socket);
-    if (!room || !isCaptain(room, socket)) return;
+    if (!room || !isCaptain(room, socket) || isMuted(room, socket)) return;
     const trimmed = (typeof newName === 'string' ? newName : '').trim().slice(0, 20);
     if (!trimmed) return;
     const targets = sameClientSocketsInRoom(room, targetSocketId).filter((t) => !t.data.isAdmin);
@@ -915,6 +957,7 @@ io.on('connection', (socket) => {
     if (!room || !socket.data.isAdmin || !nickname) return;
     room.mutedNicknames.set(normalizeName(nickname), nickname);
     broadcastAdminMutedList(room);
+    refreshViews(room);
     addLog(room, `管理者禁止「${nickname}」進行任何操作`, 'admin');
   });
 
@@ -923,24 +966,59 @@ io.on('connection', (socket) => {
     if (!room || !socket.data.isAdmin || !nickname) return;
     if (room.mutedNicknames.delete(normalizeName(nickname))) {
       broadcastAdminMutedList(room);
+      refreshViews(room);
       addLog(room, `管理者解除了「${nickname}」的操作禁止`, 'admin');
     }
   });
 
   // 管理者移除成員：中斷連線 + 禁止該暱稱再進入此房間
-  socket.on('adminRemoveUser', ({ targetSocketId, nickname } = {}) => {
-    const room = getRoom(socket);
-    if (!room || !socket.data.isAdmin || !nickname) return;
-
-    room.bannedNicknames.add(normalizeName(nickname));
+  // 把某人（含同一瀏覽器的其他分頁）移出房間；ban=true 時此暱稱之後不能再進入
+  function kickFromRoom(room, targetSocketId, by, ban, nickname) {
+    if (ban && nickname) { room.bannedNicknames.add(normalizeName(nickname)); persist.markDirty(room); }
     sameClientSocketsInRoom(room, targetSocketId).forEach((t) => {
-      t.emit('removedByAdmin');
+      if (ban) t.emit('removedByAdmin');
+      else t.emit('kicked', { by });
       leaveCurrentRoom(t);
       t.disconnect(true);
     });
     room.connectedUsers.delete(targetSocketId);
     broadcastUsers(room);
-    addLog(room, `管理者將「${nickname}」移出房間`, 'admin');
+  }
+
+  // 管理者移出玩家：預設只移出（之後可用同暱稱再進來）；ban=true 為封鎖（此暱稱不能再進入）
+  socket.on('adminRemoveUser', ({ targetSocketId, nickname, ban } = {}) => {
+    const room = getRoom(socket);
+    if (!room || !socket.data.isAdmin || !nickname) return;
+    kickFromRoom(room, targetSocketId, '管理者', !!ban, nickname);
+    addLog(room, ban ? `管理者封鎖了「${nickname}」（此暱稱無法再進入）` : `管理者將「${nickname}」移出房間`, 'admin');
+  });
+
+  // 管理者解除封鎖暱稱
+  socket.on('adminUnbanUser', ({ nickname } = {}) => {
+    const room = getRoom(socket);
+    if (!room || !socket.data.isAdmin || typeof nickname !== 'string') return;
+    if (room.bannedNicknames.delete(normalizeName(nickname))) {
+      persist.markDirty(room);
+      socket.emit('admin:bannedList', Array.from(room.bannedNicknames));
+      addLog(room, `管理者解除封鎖「${nickname}」`, 'admin');
+    }
+  });
+  socket.on('adminBannedList', (cb) => {
+    const room = getRoom(socket);
+    if (typeof cb !== 'function' || !room || !socket.data.isAdmin) return;
+    cb(Array.from(room.bannedNicknames));
+  });
+
+  // 隊長移出隊員（之後可用同暱稱再進來；不能移出自己與管理者）
+  socket.on('captainKick', ({ targetSocketId } = {}) => {
+    const room = getRoom(socket);
+    if (!room || !isCaptain(room, socket) || isMuted(room, socket)) return;
+    const target = io.sockets.sockets.get(targetSocketId);
+    if (!target || target.data.roomId !== room.id || target.data.isAdmin) return;
+    if (target.data.clientId && target.data.clientId === socket.data.clientId) return;
+    const name = target.data.nickname || '';
+    kickFromRoom(room, targetSocketId, '隊長', false, name);
+    addLog(room, `隊長「${socket.data.nickname}」將「${name}」移出房間`, 'admin');
   });
 
   // 管理者刪除單筆操作紀錄
@@ -951,7 +1029,7 @@ io.on('connection', (socket) => {
     if (idx !== -1) {
       room.activityLog.splice(idx, 1);
       persist.markDirty(room);
-      io.to(room.id).emit('log:remove', logId);
+      io.to(VIEW(room.id)).emit('log:remove', logId);
     }
   });
 
@@ -967,7 +1045,7 @@ io.on('connection', (socket) => {
     const count = (room.loot[image][id] || 0) + 1;
     room.loot[image][id] = count;
     persist.markDirty(room);
-    io.to(room.id).emit('loot:update', { image, itemId: id, count });
+    io.to(VIEW(room.id)).emit('loot:update', { image, itemId: id, count });
     addLog(room, `${socket.data.nickname} 記錄了「${(DROPS[image] && DROPS[image].name) || ''}」掉落：${items.get(id)}（第 ${count} 個）`, 'start');
     updateGlobalLoot(room, image);
     reply({ ok: true, count });
@@ -983,7 +1061,7 @@ io.on('connection', (socket) => {
     if (count > 0) room.loot[image][id] = count; else delete room.loot[image][id];
     if (Object.keys(room.loot[image]).length === 0) delete room.loot[image];
     persist.markDirty(room);
-    io.to(room.id).emit('loot:update', { image, itemId: id, count: Math.max(0, count) });
+    io.to(VIEW(room.id)).emit('loot:update', { image, itemId: id, count: Math.max(0, count) });
     const name = DROP_ITEMS[image] ? DROP_ITEMS[image].get(id) : id;
     addLog(room, `${socket.data.nickname} 將「${(DROPS[image] && DROPS[image].name) || ''}」的 ${name} 紀錄 -1`, 'stop');
     updateGlobalLoot(room, image);
@@ -997,7 +1075,7 @@ io.on('connection', (socket) => {
     const imgs = Object.keys(room.loot || {});
     room.loot = {};
     persist.markDirty(room);
-    io.to(room.id).emit('loot:init', {});
+    io.to(VIEW(room.id)).emit('loot:init', {});
     if (!socket.data.isAdmin) addLog(room, `${socket.data.nickname} 清空了戰利品紀錄`, 'user');
     // 這間房間在全站統計裡的資料也一起移除（避免擊殺數留著、掉落歸零造成掉率失真）
     const key = roomShort(room);
@@ -1060,7 +1138,7 @@ io.on('connection', (socket) => {
     if (!canTransferTimers(room)) return reply({ error: '只有隊長可以清空時間點紀錄' });
     room.killPoints = [];
     persist.markDirty(room);
-    io.to(room.id).emit('killpoint:init', []);
+    io.to(VIEW(room.id)).emit('killpoint:init', []);
     if (!socket.data.isAdmin) addLog(room, `${socket.data.nickname} 清空了時間點紀錄`, 'user');
     reply({ ok: true });
   });
@@ -1086,7 +1164,7 @@ io.on('connection', (socket) => {
     const room = getRoom(socket);
     if (!room || !socket.data.isAdmin) return;
     room.activityLog = [];
-    io.to(room.id).emit('log:clear');
+    io.to(VIEW(room.id)).emit('log:clear');
     addLog(room, '管理者清空了所有操作紀錄', 'admin');
   });
 
@@ -1201,9 +1279,9 @@ io.on('connection', (socket) => {
     if (tab.locked && tab.image) updateGlobalLoot(room, tab.image);
     addLog(room, `${nickname} 擊殺了「${tab.name}」CH${channelIndex + 1}，重新開始倒數`, 'start');
     broadcastChannels(room, [{ tabId: tab.id, channelIndex }]); // 只送這一個 CH 的變化
-    io.to(room.id).emit('tab:meta', { tabId: tab.id, killCount: tab.killCount });
+    io.to(VIEW(room.id)).emit('tab:meta', { tabId: tab.id, killCount: tab.killCount });
     // 擊殺音效：整個房間一起播放同一個音效（80% 受傷、20% 死亡；伺服器決定，大家聽到的一樣）
-    io.to(room.id).emit('killSound', { image: tab.image || null, kind: Math.random() < 0.8 ? 'damage' : 'die' });
+    io.to(VIEW(room.id)).emit('killSound', { image: tab.image || null, kind: Math.random() < 0.8 ? 'damage' : 'die' });
   });
 
   // ---------- 待命：沒人待命時按下 → 顯示按的人的暱稱；已有人待命時再按一次 → 變回「待命」 ----------

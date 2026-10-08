@@ -107,10 +107,11 @@
         alert('管理者密鑰錯誤');
       }
     });
+    rawOn('admin:bannedList', (list) => { A.banned = list || []; if (A.uiReady) renderBanned(); });
     rawOn('admin:rooms', (list) => { A.rooms = list || []; if (A.uiReady) renderRooms(); });
     rawOn('admin:mutedList', (list) => { A.muted = list || []; if (A.uiReady) { renderMuted(); renderUsers(); } });
     rawOn('users:update', () => { if (A.uiReady) setTimeout(renderUsers, 0); });
-    rawOn('join:ack', () => { A.switchFrom = null; if (A.uiReady) setTimeout(renderRooms, 0); });
+    rawOn('join:ack', () => { A.switchFrom = null; if (A.uiReady) setTimeout(() => { renderRooms(); loadBanned(); }, 0); });
   }
 
   // ---------- 介面 ----------
@@ -175,7 +176,7 @@
     updateNicknameDisplay = function () {
       origNick();
       if (A.isAdmin && myNickname) {
-        myNicknameDisplay.textContent += '（👻 隱身中）';
+        myNicknameDisplay.appendChild(document.createTextNode(' 👻'));
         myNicknameDisplay.title = '管理者不會出現在其他人的線上人數與名單中';
       }
     };
@@ -211,6 +212,7 @@
     renderUsers();
     renderMuted();
     renderRooms();
+    loadBanned();
   }
 
   function renderUsers() {
@@ -245,14 +247,23 @@
       });
       row.appendChild(muteBtn);
 
-      const removeBtn = el('button', 'danger', '移除');
-      removeBtn.title = '將此人移出房間';
+      const removeBtn = el('button', 'danger', '移出');
+      removeBtn.title = '將此人移出房間（之後仍可用同暱稱再進來）';
       removeBtn.addEventListener('click', () => {
-        if (confirm(`確定要將「${u.name}」移出房間嗎？此暱稱之後將無法再進入這個房間。`)) {
+        if (confirm(`確定要將「${u.name}」移出房間嗎？（之後仍可用同暱稱再進來）`)) {
           A.socket.emit('adminRemoveUser', { targetSocketId: u.id, nickname: u.name });
         }
       });
       row.appendChild(removeBtn);
+      const banBtn = el('button', 'danger', '封鎖');
+      banBtn.title = '移出並封鎖此暱稱（之後無法再用這個暱稱進入這個房間）';
+      banBtn.addEventListener('click', () => {
+        if (confirm(`確定要封鎖「${u.name}」嗎？此暱稱之後將無法再進入這個房間（可在「已封鎖」解除）。`)) {
+          A.socket.emit('adminRemoveUser', { targetSocketId: u.id, nickname: u.name, ban: true });
+          setTimeout(loadBanned, 300);
+        }
+      });
+      row.appendChild(banBtn);
 
       userListEl.appendChild(row);
     });
@@ -272,6 +283,33 @@
       btn.addEventListener('click', () => A.socket.emit('adminUnmuteUser', { nickname: name }));
       row.appendChild(btn);
       mutedListEl.appendChild(row);
+    });
+  }
+
+  // 已封鎖的暱稱（可解除）
+  let bannedEl = null;
+  function loadBanned() {
+    if (!A.isAdmin || !A.socket) return;
+    A.socket.emit('adminBannedList', (list) => { A.banned = list || []; renderBanned(); });
+  }
+  function renderBanned() {
+    if (!A.uiReady || !A.isAdmin) return;
+    if (!bannedEl) {
+      const t = el('span', 'admin-panel-title', '⛔ 已封鎖：');
+      t.style.marginLeft = '14px';
+      bannedEl = el('div', 'admin-user-list');
+      mutedListEl.parentNode.insertBefore(t, mutedListEl.nextSibling);
+      t.parentNode.insertBefore(bannedEl, t.nextSibling);
+    }
+    bannedEl.innerHTML = '';
+    if (!A.banned || !A.banned.length) { bannedEl.innerHTML = '<span style="color:#64748b;">沒有</span>'; return; }
+    A.banned.forEach((n) => {
+      const row = el('div', 'admin-user-row');
+      row.appendChild(el('span', 'u-name', n));
+      const b = el('button', '', '解除封鎖');
+      b.addEventListener('click', () => A.socket.emit('adminUnbanUser', { nickname: n }));
+      row.appendChild(b);
+      bannedEl.appendChild(row);
     });
   }
 
