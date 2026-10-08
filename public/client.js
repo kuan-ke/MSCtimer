@@ -753,6 +753,7 @@ socket.on('tab:meta', ({ tabId, killCount }) => {
   if (!tab) return;
   tab.killCount = killCount;
   if (tabId === currentTabId) renderKillCount();
+  if (typeof renderLoot === 'function' && roomLoot[tab.image]) renderLoot();
 });
 
 function refreshAfterTabSwitch() {
@@ -877,7 +878,159 @@ function renderBossBanner() {
   } else {
     bossImageEl.classList.add('hidden');
   }
+  const dropsBtn = document.getElementById('dropsBtn');
+  const hasDrops = !!(tab.image && DROP_BOSSES && DROP_BOSSES.has(tab.image));
+  if (dropsBtn) dropsBtn.classList.toggle('hidden', !hasDrops);
+  renderBossStats(hasDrops ? tab.image : null);
 }
+
+// 王的等級／血量／經驗／出沒地點（顯示在「戰利品」按鈕左邊）
+function renderBossStats(image) {
+  const el = document.getElementById('bossStats');
+  if (!el) return;
+  el.innerHTML = '';
+  if (!image) return;
+  loadDrops().then((d) => {
+    const tab = getCurrentTab();
+    if (!tab || tab.image !== image) return; // 期間切換了分頁
+    const b = d[image];
+    if (!b) return;
+    el.innerHTML = '';
+    const line1 = document.createElement('div');
+    line1.className = 'boss-stats-main';
+    [['Lv.', b.level], ['HP ', b.maxHP.toLocaleString()], ['經驗 ', b.exp.toLocaleString()]].forEach(([k, v]) => {
+      const sp = document.createElement('span');
+      sp.textContent = k + v;
+      line1.appendChild(sp);
+    });
+    const line2 = document.createElement('div');
+    line2.className = 'boss-stats-map';
+    line2.textContent = '出沒：' + b.maps.join('、');
+    line2.title = line2.textContent;
+    el.appendChild(line1);
+    el.appendChild(line2);
+  }).catch(() => {});
+}
+
+// ---------- 王的掉落物（public/drops/drops.json，從遊戲的怪物圖鑑掉落清單整理；不含機率） ----------
+var DROP_BOSSES = new Set(['red-king.png', 'tree-demon-king.png', 'giant-crab.png', 'zombie-monkey-king.png', 'mushroom-king.png',
+  'zombie-mushroom-king.png', 'swamp-crocodile.png', 'barogu.png', 'elliget.png', 'snow-fur-monster.png']);
+var dropsData = null;
+let dropsFilter = '全部';
+let dropsCurrent = null;
+function loadDrops() {
+  if (dropsData) return Promise.resolve(dropsData);
+  return fetch('drops/drops.json').then((r) => r.json()).then((d) => { dropsData = d; return d; });
+}
+function openDrops() {
+  const tab = getCurrentTab();
+  if (!tab || !tab.image) return;
+  loadDrops().then((d) => {
+    const boss = d[tab.image];
+    if (!boss) { showToast('這隻王沒有戰利品資料'); return; }
+    dropsCurrent = boss;
+    dropsFilter = '全部';
+    document.getElementById('dropsSearch').value = '';
+    document.getElementById('dropsBossImg').src = `images/${tab.image}`;
+    document.getElementById('dropsBossName').textContent = boss.name;
+    renderDrops();
+    document.getElementById('dropsOverlay').classList.remove('hidden');
+  }).catch(() => showToast('戰利品資料讀取失敗'));
+}
+function renderDrops() {
+  const boss = dropsCurrent;
+  if (!boss) return;
+  const q = document.getElementById('dropsSearch').value.trim().toLowerCase();
+  const kinds = ['全部'].concat([...new Set(boss.drops.map((x) => x.kind))]);
+  const fEl = document.getElementById('dropsFilters');
+  fEl.innerHTML = '';
+  kinds.forEach((k) => {
+    const n = k === '全部' ? boss.drops.length : boss.drops.filter((x) => x.kind === k).length;
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'drops-chip' + (k === dropsFilter ? ' active' : '');
+    b.textContent = `${k} ${n}`;
+    b.addEventListener('click', () => { dropsFilter = k; renderDrops(); });
+    fEl.appendChild(b);
+  });
+  const list = document.getElementById('dropsList');
+  list.innerHTML = '';
+  const shown = boss.drops.filter((x) => (dropsFilter === '全部' || x.kind === dropsFilter) && (!q || x.name.toLowerCase().includes(q)));
+  document.getElementById('dropsCount').textContent = `戰利品 ${boss.drops.length} 項`;
+  if (shown.length === 0) {
+    const e = document.createElement('div');
+    e.className = 'status-empty';
+    e.textContent = '沒有符合的道具';
+    list.appendChild(e);
+  }
+  shown.forEach((x) => {
+    const row = document.createElement('div');
+    row.className = 'drop-row';
+    const ic = document.createElement('div');
+    ic.className = 'drop-icon';
+    if (x.icon) {
+      const img = document.createElement('img');
+      img.src = `drops/icons/${x.id}.png`;
+      img.alt = x.name;
+      img.loading = 'lazy';
+      ic.appendChild(img);
+    }
+    const body = document.createElement('div');
+    body.className = 'drop-body';
+    const top = document.createElement('div');
+    top.className = 'drop-top';
+    const nm = document.createElement('span');
+    nm.className = 'drop-name';
+    nm.textContent = x.name;
+    const cat = document.createElement('span');
+    cat.className = 'drop-cat kind-' + x.kind;
+    cat.textContent = x.cat || x.kind;
+    top.appendChild(nm);
+    top.appendChild(cat);
+    body.appendChild(top);
+    if (x.detail) {
+      const det = document.createElement('div');
+      det.className = 'drop-detail';
+      det.textContent = x.detail;
+      body.appendChild(det);
+    }
+    if (x.desc) {
+      const ds = document.createElement('div');
+      ds.className = 'drop-desc';
+      ds.textContent = x.desc;
+      body.appendChild(ds);
+    }
+    const image = getCurrentTab() && getCurrentTab().image;
+    const n = image ? lootCountOf(image, x.id) : 0;
+    const rec = document.createElement('div');
+    rec.className = 'drop-rec' + (n ? ' has' : '');
+    rec.textContent = n ? `已記錄 ${n}` : '＋記錄';
+    row.title = `道具編號 ${x.id}｜點一下記錄一次掉落`;
+    row.classList.add('clickable');
+    row.addEventListener('click', () => {
+      if (!ensureNickname()) return;
+      if (!image) return;
+      socket.emit('lootRecord', { image, itemId: x.id }, (res) => {
+        if (res && res.ok) showToast(`已記錄：${x.name}（本房間第 ${res.count} 個）`);
+        else showToast((res && res.error) || '記錄失敗');
+      });
+    });
+    row.appendChild(ic);
+    row.appendChild(body);
+    row.appendChild(rec);
+    list.appendChild(row);
+  });
+}
+(function bindDrops() {
+  const btn = document.getElementById('dropsBtn');
+  const ov = document.getElementById('dropsOverlay');
+  if (!btn || !ov) return;
+  btn.addEventListener('click', openDrops);
+  document.getElementById('dropsClose').addEventListener('click', () => ov.classList.add('hidden'));
+  ov.addEventListener('click', (e) => { if (e.target === ov) ov.classList.add('hidden'); });
+  document.getElementById('dropsSearch').addEventListener('input', renderDrops);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') ov.classList.add('hidden'); });
+})();
 
 // ---------- Range panel ----------
 function getCurrentTab() {
@@ -1439,7 +1592,7 @@ async function openPip() {
       <div class="panel active-panel" id="pipActivePanel">
         <div class="panel-title-row">
           <div class="panel-title">📋 進行中頻道</div>
-          <div class="pip-title-right"><span class="kill-count" id="pipKillCount"></span><div class="view-toggle"><button data-view="boss">本王</button><button data-view="all">總頻道</button></div></div>
+          <div class="pip-title-right"><button type="button" class="loot-add-btn" id="pipLootAdd" title="記錄這隻王的戰利品掉落">＋戰利品</button><span class="kill-count" id="pipKillCount"></span><div class="view-toggle"><button data-view="boss">本王</button><button data-view="all">總頻道</button></div></div>
         </div>
         <div class="active-columns">
           <div class="active-sub-panel">
@@ -1447,8 +1600,9 @@ async function openPip() {
             <div id="pipStatusCounting" class="status-list scrollable"></div>
           </div>
           <div class="active-sub-panel">
-            <div class="sub-panel-title appear-title"><span>🌟 出現中</span><button type="button" class="killpoint-btn" title="每次按「擊殺」時，王已經重生了多久">⏱ 時間點</button></div>
+            <div class="sub-panel-title appear-title"><span>🌟 出現中</span><span class="appear-tools"><button type="button" class="loot-btn" title="本房間記錄到的戰利品（在「📦 戰利品」目錄裡點道具即可記錄）">📦 戰利品</button><button type="button" class="killpoint-btn" title="每次按「擊殺」時，王已經重生了多久">⏱ 時間點</button></span></div>
             <div class="killpoint-pop hidden"></div>
+            <div class="loot-pop hidden"></div>
             <div id="pipStatusAppearing" class="status-list scrollable"></div>
           </div>
         </div>
@@ -1462,6 +1616,8 @@ async function openPip() {
   pipStatusAppearingEl = pipDoc.getElementById('pipStatusAppearing');
   bindViewToggle(pipDoc);
   bindKillPoints(pipDoc);
+  bindLoot(pipDoc);
+  pipDoc.getElementById('pipLootAdd').addEventListener('click', (e) => { e.stopPropagation(); openLootPicker(pipDoc); });
 
   pipWindow.addEventListener('pagehide', () => {
     pipWindow = null;
@@ -1640,6 +1796,7 @@ function bindKillPoints(d) {
   if (!btn || !pop) return;
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
+    closeLootPop(d);
     pop.classList.toggle('hidden');
     btn.classList.toggle('active', !pop.classList.contains('hidden'));
   });
@@ -1650,6 +1807,186 @@ function bindKillPoints(d) {
   });
   renderKillPointsInto(d);
 }
+
+// ---------- 「戰利品」紀錄：本房間各王記錄到的掉落（在戰利品目錄點道具記錄） ----------
+var roomLoot = {}; // { 王圖檔: { 道具編號: 次數 } }
+function lootCountOf(image, id) { return (roomLoot[image] && roomLoot[image][id]) || 0; }
+function closeLootPop(d) {
+  const p = d.querySelector('.loot-pop'); const b = d.querySelector('.loot-btn');
+  if (p) p.classList.add('hidden'); if (b) b.classList.remove('active');
+}
+function closeKillPointPop(d) {
+  const p = d.querySelector('.killpoint-pop'); const b = d.querySelector('.killpoint-btn');
+  if (p) p.classList.add('hidden'); if (b) b.classList.remove('active');
+}
+function renderLootInto(d) {
+  if (!d) return;
+  const pop = d.querySelector('.loot-pop');
+  const btn = d.querySelector('.loot-btn');
+  if (!pop) return;
+  const total = Object.values(roomLoot).reduce((a, m) => a + Object.values(m).reduce((x, y) => x + y, 0), 0);
+  if (btn) btn.textContent = total ? `📦 戰利品 ${total}` : '📦 戰利品';
+  pop.innerHTML = '';
+  const head = d.createElement('div');
+  head.className = 'killpoint-head';
+  const title = d.createElement('span');
+  title.textContent = `本房間戰利品紀錄（${total}）`;
+  head.appendChild(title);
+  const clearBtn = d.createElement('button');
+  clearBtn.type = 'button';
+  clearBtn.className = 'killpoint-clear';
+  clearBtn.textContent = '清空';
+  clearBtn.title = '只有隊長可以清空';
+  clearBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!joined) return;
+    if (!(d.defaultView || window).confirm('確定要清空本房間所有戰利品紀錄嗎？')) return;
+    socket.emit('lootClear', (res) => { if (!res || !res.ok) showToast((res && res.error) || '只有隊長可以清空戰利品紀錄'); });
+  });
+  head.appendChild(clearBtn);
+  pop.appendChild(head);
+  const list = d.createElement('div');
+  list.className = 'killpoint-list';
+  const imgs = Object.keys(roomLoot).filter((img) => Object.keys(roomLoot[img]).length);
+  if (imgs.length === 0) {
+    const empty = d.createElement('div');
+    empty.className = 'status-empty';
+    empty.textContent = '還沒有紀錄。打開王的「📦 戰利品」目錄，點道具即可記錄一次。';
+    list.appendChild(empty);
+  }
+  const dd = dropsData;
+  imgs.forEach((img) => {
+    const boss = dd && dd[img];
+    const tab = tabs.find((t) => t.image === img);
+    const grp = d.createElement('div');
+    grp.className = 'loot-group';
+    const gh = d.createElement('div');
+    gh.className = 'loot-group-head';
+    gh.textContent = `${boss ? boss.name : (tab ? tab.name : img)}`;
+    const kc = d.createElement('span');
+    kc.className = 'loot-kills';
+    kc.textContent = `擊殺 ${tab ? (tab.killCount || 0) : 0} 次`;
+    gh.appendChild(kc);
+    grp.appendChild(gh);
+    Object.entries(roomLoot[img]).sort((a, b) => b[1] - a[1]).forEach(([id, c]) => {
+      const info = boss && boss.drops.find((x) => String(x.id) === String(id));
+      const row = d.createElement('div');
+      row.className = 'loot-row';
+      const ic = d.createElement('span');
+      ic.className = 'loot-icon';
+      if (info && info.icon) { const im = d.createElement('img'); im.src = `drops/icons/${id}.png`; im.alt = ''; ic.appendChild(im); }
+      const nm = d.createElement('span');
+      nm.className = 'loot-name';
+      nm.textContent = info ? info.name : id;
+      const cnt = d.createElement('span');
+      cnt.className = 'loot-count';
+      cnt.textContent = `×${c}`;
+      const minus = d.createElement('button');
+      minus.type = 'button';
+      minus.className = 'loot-minus';
+      minus.textContent = '−';
+      minus.title = '記錯了？減少一次';
+      minus.addEventListener('click', (e) => { e.stopPropagation(); socket.emit('lootUndo', { image: img, itemId: Number(id) }); });
+      row.appendChild(ic); row.appendChild(nm); row.appendChild(cnt); row.appendChild(minus);
+      grp.appendChild(row);
+    });
+    list.appendChild(grp);
+  });
+  pop.appendChild(list);
+}
+function renderLoot() {
+  renderLootInto(document);
+  if (typeof pipDoc !== 'undefined' && pipDoc) renderLootInto(pipDoc);
+  if (typeof dropsCurrent !== 'undefined' && dropsCurrent && !document.getElementById('dropsOverlay').classList.contains('hidden')) renderDrops();
+  [document, typeof pipDoc !== 'undefined' ? pipDoc : null].forEach((d) => {
+    const ov = d && d.querySelector('.loot-picker-ov');
+    if (ov && ov._render) ov._render();
+  });
+}
+function bindLoot(d) {
+  const btn = d.querySelector('.loot-btn');
+  const pop = d.querySelector('.loot-pop');
+  if (!btn || !pop) return;
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeKillPointPop(d);
+    const opening = pop.classList.contains('hidden');
+    pop.classList.toggle('hidden');
+    btn.classList.toggle('active', opening);
+    if (opening) loadDrops().then(() => renderLootInto(d)).catch(() => {});
+  });
+  pop.addEventListener('click', (e) => e.stopPropagation());
+  d.addEventListener('click', () => closeLootPop(d));
+  renderLootInto(d);
+}
+bindLoot(document);
+
+// 子母畫面用的「新增戰利品」挑選視窗（在該視窗內開啟；點道具記錄一次）
+function openLootPicker(d) {
+  const tab = getCurrentTab();
+  if (!tab || !tab.image || !DROP_BOSSES.has(tab.image)) { showToast('這隻王沒有戰利品資料'); return; }
+  loadDrops().then((data) => {
+    const boss = data[tab.image];
+    if (!boss) return;
+    let ov = d.querySelector('.loot-picker-ov');
+    if (ov) ov.remove();
+    ov = d.createElement('div');
+    ov.className = 'loot-picker-ov';
+    ov.dataset.image = tab.image;
+    ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove(); });
+    const box = d.createElement('div');
+    box.className = 'loot-picker';
+    const head = d.createElement('div');
+    head.className = 'loot-picker-head';
+    head.innerHTML = '';
+    const t = d.createElement('span'); t.textContent = `＋戰利品：${boss.name}`;
+    const close = d.createElement('button'); close.type = 'button'; close.className = 'drops-close'; close.textContent = '✕';
+    close.addEventListener('click', () => ov.remove());
+    head.appendChild(t); head.appendChild(close);
+    const search = d.createElement('input'); search.type = 'search'; search.placeholder = '搜尋道具名稱…'; search.className = 'loot-picker-search';
+    const list = d.createElement('div'); list.className = 'loot-picker-list';
+    box.appendChild(head); box.appendChild(search); box.appendChild(list);
+    ov.appendChild(box);
+    d.body.appendChild(ov);
+    const render = () => {
+      const q = search.value.trim().toLowerCase();
+      list.innerHTML = '';
+      boss.drops.filter((x) => !q || x.name.toLowerCase().includes(q)).forEach((x) => {
+        const row = d.createElement('div');
+        row.className = 'loot-picker-row';
+        const ic = d.createElement('span'); ic.className = 'loot-icon';
+        if (x.icon) { const im = d.createElement('img'); im.src = `drops/icons/${x.id}.png`; im.alt = ''; ic.appendChild(im); }
+        const nm = d.createElement('span'); nm.className = 'loot-name'; nm.textContent = x.name;
+        const n = lootCountOf(tab.image, x.id);
+        const c = d.createElement('span'); c.className = 'drop-rec' + (n ? ' has' : ''); c.textContent = n ? `已記錄 ${n}` : '＋記錄';
+        row.appendChild(ic); row.appendChild(nm); row.appendChild(c);
+        row.addEventListener('click', () => {
+          if (!ensureNickname()) return;
+          socket.emit('lootRecord', { image: tab.image, itemId: x.id }, (res) => {
+            if (res && res.ok) showToast(`已記錄：${x.name}（本房間第 ${res.count} 個）`);
+            else showToast((res && res.error) || '記錄失敗');
+          });
+        });
+        list.appendChild(row);
+      });
+    };
+    ov._render = render;
+    search.addEventListener('input', render);
+    render();
+    search.focus();
+  }).catch(() => showToast('戰利品資料讀取失敗'));
+}
+socket.on('loot:init', (data) => {
+  roomLoot = data && typeof data === 'object' ? data : {};
+  loadDrops().then(renderLoot).catch(renderLoot);
+});
+socket.on('loot:update', ({ image, itemId, count } = {}) => {
+  if (!image) return;
+  if (!roomLoot[image]) roomLoot[image] = {};
+  if (count > 0) roomLoot[image][itemId] = count; else delete roomLoot[image][itemId];
+  if (Object.keys(roomLoot[image]).length === 0) delete roomLoot[image];
+  renderLoot();
+});
 
 bindKillPoints(document);
 

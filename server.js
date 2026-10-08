@@ -102,6 +102,17 @@ app.get('/admin.js', (req, res) => {
   res.type('application/javascript').sendFile(ADMIN_JS_PATH);
 });
 
+// 戰利品圖示：全部打包在 public/drops/icons.json（避免 GitHub 網頁上傳一次超過 100 個檔案），由這裡以 /drops/icons/道具編號.png 提供
+let DROP_ICONS = {};
+try { DROP_ICONS = JSON.parse(fs.readFileSync(path.join(__dirname, 'public', 'drops', 'icons.json'), 'utf8')); } catch (e) { console.error('[戰利品] 讀不到 icons.json：', e.message); }
+app.get('/drops/icons/:file', (req, res) => {
+  const id = String(req.params.file || '').replace(/\.png$/, '');
+  const b64 = DROP_ICONS[id];
+  if (!b64) return res.status(404).end();
+  res.set('Content-Type', 'image/png');
+  res.set('Cache-Control', 'public, max-age=604800');
+  res.send(Buffer.from(b64, 'base64'));
+});
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
 let nextTabId = 1;

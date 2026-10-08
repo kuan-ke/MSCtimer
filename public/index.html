@@ -49,7 +49,10 @@
       <div class="boss-range-row">
         <div class="boss-info">
           <img id="bossImage" class="boss-image hidden" alt="" />
-          <div id="bossName" class="boss-name"></div>
+          <div class="boss-title">
+            <div id="bossName" class="boss-name"></div>
+            <div id="bossStats" class="boss-stats"></div>
+          </div>
         </div>
         <div class="range-panel">
           <label>最小值(分)<input type="number" id="minInput" min="1" /></label>
@@ -64,6 +67,9 @@
             <span class="legend-item"><span class="dot appearing"></span>出現中</span>
           </div>
           <div id="killCount" class="kill-count" title="這隻王在這間房間被按「擊殺」的次數">擊殺：0 次</div>
+          <div class="boss-loot-row">
+            <button type="button" id="dropsBtn" class="drops-btn hidden" title="查看這隻王的戰利品（遊戲資料，不含機率）">📦 戰利品</button>
+          </div>
         </div>
       </div>
 
@@ -86,8 +92,9 @@
             </div>
           </div>
           <div class="active-sub-panel">
-            <div class="sub-panel-title appear-title"><span>🌟 出現中</span><button type="button" class="killpoint-btn" title="每次按「擊殺」時，王已經重生了多久">⏱ 時間點</button></div>
+            <div class="sub-panel-title appear-title"><span>🌟 出現中</span><span class="appear-tools"><button type="button" class="loot-btn" title="本房間記錄到的戰利品（在「📦 戰利品」目錄裡點道具即可記錄）">📦 戰利品</button><button type="button" class="killpoint-btn" title="每次按「擊殺」時，王已經重生了多久">⏱ 時間點</button></span></div>
             <div class="killpoint-pop hidden"></div>
+            <div class="loot-pop hidden"></div>
             <div id="statusListAppearing" class="status-list scrollable">
               <div class="status-empty">目前沒有出現中的 CH</div>
             </div>
@@ -132,6 +139,24 @@
 </div>
 
 <!-- 右鍵：設定 CH 倒數時間 -->
+<div id="dropsOverlay" class="modal-overlay hidden">
+  <div class="modal drops-modal">
+    <div class="drops-head">
+      <img id="dropsBossImg" class="drops-boss-img" alt="" />
+      <div class="drops-boss-info">
+        <div class="drops-title"><span id="dropsBossName"></span><span class="drops-count" id="dropsCount"></span></div>
+      </div>
+      <button type="button" class="drops-close" id="dropsClose" title="關閉">✕</button>
+    </div>
+    <div class="drops-tools">
+      <div class="drops-filters" id="dropsFilters"></div>
+      <input type="search" id="dropsSearch" placeholder="搜尋道具名稱…" />
+    </div>
+    <div class="drops-list" id="dropsList"></div>
+    <div class="drops-note">點道具即可記錄一次掉落，記錄會顯示在「出現中」旁的「📦 戰利品」。資料來自遊戲內的怪物圖鑑戰利品清單，不含掉落機率。</div>
+  </div>
+</div>
+
 <div id="modalOverlay" class="modal-overlay hidden">
   <div class="modal">
     <h3 id="modalTitle">回報 CH 死亡時間</h3>
