@@ -147,8 +147,13 @@
     statsBtn.title = '所有房間按「擊殺」的時間點，統計五分區間 / 四分區間';
     statsBtn.addEventListener('click', openKillStats);
     panel.appendChild(statsBtn);
+    const onlineBtn = el('button', 'admin-stats-btn', '🟢 全站線上使用者');
+    onlineBtn.title = '目前所有房間在線上的使用者';
+    onlineBtn.style.marginLeft = '6px';
+    onlineBtn.addEventListener('click', openOnlineUsers);
+    panel.appendChild(onlineBtn);
     const lootBtn = el('button', 'admin-stats-btn', '🎁 全站戰利品統計');
-    lootBtn.title = '擊殺 50 次以上的房間，各王的擊殺數與記錄到的戰利品';
+    lootBtn.title = '擊殺 10 次以上的房間，各王的擊殺數與記錄到的戰利品';
     lootBtn.style.marginLeft = '6px';
     lootBtn.addEventListener('click', openLootStats);
     panel.appendChild(lootBtn);
@@ -349,6 +354,70 @@
     myRoomPassword = password;
     manualJoinPending = true;
     A.socket.emit('joinRoom', { nickname: nicknameForRoom(password), password, clientId: myClientId });
+  }
+
+  // ---------- 全站線上使用者 ----------
+  let onlineOverlay = null;
+  function fmtDur(ms) {
+    const m = Math.max(0, Math.floor(ms / 60000));
+    if (m < 1) return '剛進來';
+    if (m < 60) return `${m} 分鐘`;
+    const h = Math.floor(m / 60);
+    return `${h} 小時 ${m % 60} 分`;
+  }
+  function closeOnlineUsers() { if (onlineOverlay) { onlineOverlay.remove(); onlineOverlay = null; } }
+  function openOnlineUsers() {
+    if (!A.isAdmin) return;
+    A.socket.emit('adminOnlineUsers', (st) => {
+      if (!st) return;
+      closeOnlineUsers();
+      onlineOverlay = el('div', 'kps-overlay');
+      onlineOverlay.addEventListener('click', (e) => { if (e.target === onlineOverlay) closeOnlineUsers(); });
+      const box = el('div', 'kps-box');
+      const head = el('div', 'kps-head');
+      head.appendChild(el('h3', '', '🟢 全站線上使用者'));
+      const refresh = el('button', '', '重新整理');
+      refresh.addEventListener('click', openOnlineUsers);
+      const close = el('button', '', '關閉');
+      close.addEventListener('click', closeOnlineUsers);
+      [refresh, close].forEach((b) => head.appendChild(b));
+      box.appendChild(head);
+      const body = el('div', 'kps-body');
+      body.appendChild(el('div', 'kps-summary',
+        `線上 ${st.users.length} 人（${st.rooms} 個房間）　另有 ${st.lobby} 個連線停在「進入房間」畫面還沒進房　（不含管理者；同一個瀏覽器開多個分頁只算一人）`));
+      const table = el('table', 'kps-table');
+      const thead = el('tr');
+      ['暱稱', '房間密碼', '身分', '狀態', '分頁數', '在線時間', ''].forEach((h) => thead.appendChild(el('th', '', h)));
+      table.appendChild(thead);
+      if (st.users.length === 0) {
+        const tr = el('tr'); const td = el('td', '', '目前沒有人在線上'); td.colSpan = 7; tr.appendChild(td); table.appendChild(tr);
+      }
+      st.users.forEach((u) => {
+        const tr = el('tr');
+        tr.appendChild(el('td', 'name', u.name));
+        tr.appendChild(el('td', '', u.room));
+        tr.appendChild(el('td', '', u.captain ? '隊長' : '隊員'));
+        tr.appendChild(el('td', '', u.muted === 'admin' ? '🚫 管理者禁止' : u.muted === 'captain' ? '🚫 隊長禁止' : '—'));
+        tr.appendChild(el('td', '', String(u.tabs)));
+        const td = el('td', '', fmtDur(st.now - u.since));
+        td.title = '進房時間：' + new Date(u.since).toLocaleString();
+        tr.appendChild(td);
+        const act = el('td', '');
+        if (joined && u.room === myRoomPassword) act.appendChild(el('span', '', '（目前所在）'));
+        else {
+          const go = el('button', '', '進入');
+          go.title = '切換到這個房間';
+          go.addEventListener('click', () => { closeOnlineUsers(); joinOtherRoom(u.room); });
+          act.appendChild(go);
+        }
+        tr.appendChild(act);
+        table.appendChild(tr);
+      });
+      body.appendChild(table);
+      box.appendChild(body);
+      onlineOverlay.appendChild(box);
+      document.body.appendChild(onlineOverlay);
+    });
   }
 
   // ---------- 全站時間點統計 ----------

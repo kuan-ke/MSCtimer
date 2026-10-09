@@ -708,6 +708,7 @@ io.on('connection', (socket) => {
     socket.join(roomId);
     socket.data.roomId = roomId;
     socket.data.nickname = trimmedName;
+    socket.data.joinedAt = Date.now();
     room.connectedUsers.set(socket.id, trimmedName);
     room.lastActive = Date.now();
 
@@ -1113,6 +1114,33 @@ io.on('connection', (socket) => {
   });
 
   // 管理者：全站時間點統計 / 下載 CSV / 清空
+  // 管理者：全站所有線上使用者（同一瀏覽器同暱稱的多個分頁只算一人；不含隱身的管理者）
+  socket.on('adminOnlineUsers', (cb) => {
+    if (typeof cb !== 'function' || !socket.data.isAdmin) return;
+    const users = [];
+    for (const room of rooms.values()) {
+      roomUserList(room).filter((u) => !u.hidden).forEach((u) => {
+        const s0 = io.sockets.sockets.get(u.id);
+        const cid = s0 && s0.data.clientId;
+        const same = Array.from(io.sockets.sockets.values()).filter((s) =>
+          s.data.roomId === room.id && !s.data.isAdmin && (cid ? s.data.clientId === cid : s.id === u.id) && normalizeName(s.data.nickname) === normalizeName(u.name));
+        const since = Math.min(...same.map((s) => s.data.joinedAt || Date.now()));
+        users.push({
+          name: u.name,
+          room: room.password,
+          captain: !!room.captainClientId && cid === room.captainClientId,
+          muted: room.mutedNicknames.has(normalizeName(u.name)) ? 'admin' : (room.captainMuted.has(normalizeName(u.name)) ? 'captain' : null),
+          tabs: same.length || 1,
+          since
+        });
+      });
+    }
+    let lobby = 0;
+    for (const [, s] of io.sockets.sockets) if (!s.data.isAdmin && !s.data.roomId) lobby++;
+    users.sort((a, b) => a.room.localeCompare(b.room) || a.since - b.since);
+    cb({ users, lobby, rooms: new Set(users.map((u) => u.room)).size, now: Date.now() });
+  });
+
   socket.on('adminKillStats', (cb) => {
     if (typeof cb !== 'function' || !socket.data.isAdmin) return;
     cb(kpStats());
