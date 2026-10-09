@@ -986,3 +986,6 @@ body.is-muted #pipBtn { display: none !important; }
 /* 標題前的雪毛怪人小圖 */
 .top-bar h1 { display: inline-flex; align-items: center; gap: 6px; }
 .top-bar h1 .site-logo { width: 30px; height: 30px; object-fit: contain; flex-shrink: 0; }
+
+/* 暱稱只能取一次的警告 */
+.join-hint.nick-warn { color: #fca5a5; font-weight: 700; }

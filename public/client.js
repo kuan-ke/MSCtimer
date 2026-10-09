@@ -14,6 +14,18 @@ const CHANNEL_COUNT = 60;
   } catch (e) { /* ignore */ }
 })();
 const NICKNAME_KEY = 'msctimer_nickname';
+// 暱稱改為「只能取一次」：舊版存下的暱稱（含隊長改過的房間暱稱）全部作廢，所有人重新取一次
+const NICK_VERSION_KEY = 'msctimer_nick_v';
+const NICK_VERSION = '2';
+var needRenameNotice = false;
+try {
+  if (localStorage.getItem(NICK_VERSION_KEY) !== NICK_VERSION) {
+    if (localStorage.getItem(NICKNAME_KEY) !== null) needRenameNotice = true;
+    localStorage.removeItem(NICKNAME_KEY);
+    localStorage.removeItem('msctimer_room_nicknames');
+    localStorage.setItem(NICK_VERSION_KEY, NICK_VERSION);
+  }
+} catch (e) { /* ignore */ }
 
 let tabs = [];
 let currentTabId = null;
@@ -121,7 +133,7 @@ function initNickname() {
   if (savedName && savedPw) {
     hideNicknameOverlay(); // 連線後會自動進入原本的房間（見 socket 'connect'）
   } else {
-    showNicknameOverlay();
+    showNicknameOverlay(needRenameNotice ? '暱稱規則更新：請重新取一次暱稱（之後就無法更改）' : undefined);
   }
   updateNicknameDisplay();
 }
@@ -136,7 +148,8 @@ function showNicknameOverlay(errorMsg, opts = {}) {
   nicknameInput.readOnly = lockName;
   document.getElementById('nicknameHint').textContent = lockName
     ? '您的暱稱已鎖定，無法自行更改。'
-    : '暱稱會顯示在您點擊的 CH 旁邊。設定後無法自行更改，請謹慎輸入。';
+    : '⚠️ 暱稱只能取一次，取後無法更改，請謹慎輸入。';
+  document.getElementById('nicknameHint').classList.toggle('nick-warn', !lockName);
 
   if (!opts.keepPassword) roomPasswordInput.value = myRoomPassword || '';
 
@@ -168,6 +181,10 @@ function submitNickname() {
     nicknameError.textContent = '房間密碼必須剛好 6 個字元，只能使用英文大小寫或數字';
     nicknameError.classList.remove('hidden');
     roomPasswordInput.focus();
+    return;
+  }
+  if (!nicknameInput.readOnly && !confirm(`暱稱只能取一次，取後無法更改。\n\n確定要使用「${name}」嗎？`)) {
+    nicknameInput.focus();
     return;
   }
   manualJoinPending = true;
@@ -406,19 +423,6 @@ function renderOnlineUsersBar() {
         if (confirm(`確定要將「${u.name}」移出房間嗎？\n（對方之後仍可用同樣暱稱再進入；要讓他不能操作請用 🚫 禁止操作）`)) socket.emit('captainKick', { targetSocketId: u.id });
       });
       onlineNamesEl.appendChild(kickBtn);
-    }
-    if (amCaptain) {
-      const btn = document.createElement('button');
-      btn.className = 'rename-btn';
-      btn.textContent = '✎';
-      btn.title = `修改「${u.name}」在這間房間的暱稱`;
-      btn.addEventListener('click', () => {
-        const newName = prompt(`修改「${u.name}」在這間房間的暱稱：`, u.name);
-        if (newName !== null && newName.trim() && newName.trim() !== u.name) {
-          socket.emit('captainRename', { targetSocketId: u.id, newName: newName.trim().slice(0, 20) });
-        }
-      });
-      onlineNamesEl.appendChild(btn);
     }
   });
 

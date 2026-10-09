@@ -870,38 +870,7 @@ io.on('connection', (socket) => {
     leaveCurrentRoom(socket);
   });
 
-  // ---------- 隊長：修改自己或同房間其他人在此房間的暱稱 ----------
-  socket.on('captainRename', ({ targetSocketId, newName } = {}) => {
-    const room = getRoom(socket);
-    if (!room || !isCaptain(room, socket) || isMuted(room, socket)) return;
-    const trimmed = (typeof newName === 'string' ? newName : '').trim().slice(0, 20);
-    if (!trimmed) return;
-    const targets = sameClientSocketsInRoom(room, targetSocketId).filter((t) => !t.data.isAdmin);
-    if (targets.length === 0) return;
-    const target = targets[0];
-    const oldName = target.data.nickname;
-    if (normalizeName(oldName) === normalizeName(trimmed) && oldName === trimmed) return;
-    if (room.bannedNicknames.has(normalizeName(trimmed))) {
-      socket.emit('error:toast', '這個暱稱已被移出此房間，不能使用');
-      return;
-    }
-    if (isNicknameTaken(room, trimmed, target.id, false, target.data.clientId)) {
-      socket.emit('error:toast', '這個暱稱在此房間已經有人在使用');
-      return;
-    }
-    targets.forEach((t) => {
-      t.data.nickname = trimmed;
-      room.connectedUsers.set(t.id, trimmed);
-      t.emit('forceNickname', trimmed);
-    });
-    transferNameState(room, target.data.clientId, oldName, trimmed); // 被禁止的人改名後仍維持禁止；隊長改名同步更新隊長名稱
-    sendCaptainMuted(room);
-    broadcastUsers(room);
-    const self = target.data.clientId === socket.data.clientId;
-    addLog(room, self
-      ? `隊長「${oldName}」將自己的暱稱改為「${trimmed}」`
-      : `隊長「${socket.data.nickname}」將「${oldName}」的暱稱改為「${trimmed}」`, 'admin');
-  });
+  // （隊長改名功能已移除：暱稱只能取一次，只有管理者可以修改）
 
   // 只用於管理者修改自己的暱稱（一般使用者暱稱設定後無法自行更改）
   socket.on('setNickname', (name) => {
