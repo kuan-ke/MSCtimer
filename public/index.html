@@ -135,12 +135,12 @@
     <h3>進入計時器房間</h3>
 
     <label class="join-label" for="nicknameInput">暱稱</label>
-    <input type="text" id="nicknameInput" maxlength="20" placeholder="輸入暱稱..." autocomplete="off" />
+    <input type="text" id="nicknameInput" maxlength="20" placeholder="輸入暱稱..." autocomplete="off" data-lpignore="true" data-1p-ignore="true" />
     <p class="modal-note join-hint nick-warn" id="nicknameHint">⚠️ 暱稱只能取一次，取後無法更改，請謹慎輸入。</p>
 
     <label class="join-label" for="roomPasswordInput">房間密碼</label>
     <div class="password-row">
-      <input type="password" id="roomPasswordInput" maxlength="6" placeholder="6 碼英文或數字" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <input type="text" id="roomPasswordInput" class="pw-masked" maxlength="6" placeholder="6 碼英文或數字" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" />
       <button type="button" id="togglePasswordBtn" class="btn-secondary password-toggle" title="顯示 / 隱藏密碼">顯示</button>
       <button type="button" id="randomPasswordBtn" class="btn-secondary password-toggle" title="產生一組隨機、沒人用過的房間密碼（建立新房間用）">🎲 隨機</button>
     </div>

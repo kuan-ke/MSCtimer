@@ -222,7 +222,7 @@ document.getElementById('randomPasswordBtn').addEventListener('click', () => {
       return;
     }
     roomPasswordInput.value = pw;
-    roomPasswordInput.type = 'text'; // 直接顯示出來，方便記下來分享給隊友
+    roomPasswordInput.classList.remove('pw-masked'); // 直接顯示出來，方便記下來分享給隊友
     togglePasswordBtn.textContent = '隱藏';
     nicknameError.classList.add('hidden');
     roomPasswordInput.focus();
@@ -230,8 +230,9 @@ document.getElementById('randomPasswordBtn').addEventListener('click', () => {
 });
 
 togglePasswordBtn.addEventListener('click', () => {
-  const show = roomPasswordInput.type === 'password';
-  roomPasswordInput.type = show ? 'text' : 'password';
+  // 房間密碼不是帳號密碼：用一般文字欄位＋CSS 遮蔽，避免 Chrome 把它當成登入密碼並跳出「密碼外洩」警告
+  const show = roomPasswordInput.classList.contains('pw-masked');
+  roomPasswordInput.classList.toggle('pw-masked', !show);
   togglePasswordBtn.textContent = show ? '隱藏' : '顯示';
 });
 
