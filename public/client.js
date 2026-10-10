@@ -2103,7 +2103,10 @@ const optAlertSound = document.getElementById('optAlertSound');
 function renderSoundBtn() {
   if (!soundBtn) return;
   const icon = killSoundOn && alertSoundOn ? '🔊' : (!killSoundOn && !alertSoundOn ? '🔇' : '🔉');
-  soundBtn.textContent = `${icon} 音效`;
+  soundBtn.innerHTML = '';
+  soundBtn.append(icon);
+  const sl = document.createElement('span'); sl.className = 'btn-label'; sl.textContent = ' 音效';
+  soundBtn.appendChild(sl);
   soundBtn.classList.toggle('muted', !killSoundOn && !alertSoundOn);
   soundBtn.title = `擊殺音效：${killSoundOn ? '開' : '關'}／提示音：${alertSoundOn ? '開' : '關'}`;
   if (optKillSound) optKillSound.checked = killSoundOn;
@@ -2192,3 +2195,201 @@ function playBeep(freq) {
     // 瀏覽器可能封鎖自動播放音效，忽略即可
   }
 }
+
+// ---------- 使用指南 ----------
+(function setupGuide() {
+  const overlay = document.getElementById('guideOverlay');
+  const btn = document.getElementById('guideBtn');
+  if (!overlay || !btn) return;
+  const open = () => { overlay.classList.remove('hidden'); overlay.querySelector('.guide-body').scrollTop = 0; };
+  const close = () => overlay.classList.add('hidden');
+  btn.addEventListener('click', open);
+  const joinBtn = document.getElementById('joinGuideBtn'); // 進入房間（輸入暱稱）視窗裡也有一顆
+  if (joinBtn) joinBtn.addEventListener('click', open);
+  document.getElementById('guideCloseBtn').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !overlay.classList.contains('hidden')) close(); });
+})();
+
+// ---------- 贊助 ----------
+// 收款連結：網址留空 = 還在審核中（按鈕會顯示「審核中」且不能點）
+const DONATE_LINKS = [
+  { name: 'PayPal', icon: '💳', url: 'https://www.paypal.com/ncp/payment/LWHNMPF397KA4' },
+  { name: '歐付寶', icon: '🟢', url: '' },
+  { name: '綠界', icon: '🟩', url: '' }
+];
+(function setupDonate() {
+  const overlay = document.getElementById('donateOverlay');
+  const btn = document.getElementById('donateBtn');
+  if (!overlay || !btn) return;
+  const linksEl = document.getElementById('donateLinks');
+  const boardEl = document.getElementById('donateBoard');
+  const sel = document.getElementById('donateMonthSel');
+
+  const nameIn = document.getElementById('donName');
+  const amtIn = document.getElementById('donAmount');
+  const msgIn = document.getElementById('donMsg');
+  const anonIn = document.getElementById('donAnon');
+  let savedName = '';
+  anonIn.addEventListener('change', () => {
+    if (anonIn.checked) { savedName = nameIn.value; nameIn.value = ''; } else if (!nameIn.value) nameIn.value = savedName;
+    nameIn.disabled = anonIn.checked;
+    nameIn.placeholder = anonIn.checked ? '匿名贊助（不用填）' : '要顯示在贊助榜上的名字';
+  });
+  const errEl = document.getElementById('donateError');
+  const resEl = document.getElementById('donateResult');
+  const showErr = (m) => { errEl.textContent = m; errEl.classList.toggle('hidden', !m); };
+
+  DONATE_LINKS.forEach((l, i) => {
+    const a = document.createElement(l.url ? 'a' : 'span');
+    a.className = 'donate-link' + (l.url ? '' : ' pending');
+    if (l.url) { a.href = l.url; a.target = '_blank'; a.rel = 'noopener'; }
+    a.textContent = `${i + 1}. ${l.icon} ${l.name}`;
+    const tag = document.createElement('small');
+    tag.textContent = l.url ? '前往付款 ↗' : '審核中';
+    a.appendChild(tag);
+    if (l.url) {
+      a.addEventListener('click', (e) => {
+        showErr('');
+        const anon = anonIn.checked;
+        const name = anon ? '' : nameIn.value.trim();
+        const amount = amtIn.value.trim();
+        const msg = msgIn.value.trim();
+        if (!anon && !name && !amount && !msg) return; // 什麼都沒填：直接前往付款（不上榜）
+        if ((!anon && !name) || !(Number(amount) >= 1)) {
+          e.preventDefault();
+          showErr(anon ? '匿名贊助也請填寫金額，才對得上款項' : '要上贊助榜的話，請填寫暱稱和金額（也可以勾選匿名；不想上榜可以全部留空，直接付款）');
+          (!anon && !name ? nameIn : amtIn).focus();
+          return;
+        }
+        // 讓瀏覽器照常開新分頁（不擋，避免被當成彈出視窗），同時把資料送到伺服器拿代碼
+        submitIntent(l.name);
+      });
+    }
+    linksEl.appendChild(a);
+  });
+
+  // 送出「我要贊助」的資料（暱稱／金額／留言）→ 拿到贊助代碼。同一份資料只送一次
+  let lastSent = '';
+  function submitIntent(via, quiet) {
+    const anon = anonIn.checked;
+    const name = anon ? '' : nameIn.value.trim();
+    const amount = amtIn.value.trim();
+    const msg = msgIn.value.trim();
+    if ((!anon && !name) || !(Number(amount) >= 1)) return false;
+    const sig = [anon, name, amount, msg, via].join('|');
+    if (sig === lastSent) return true;
+    lastSent = sig;
+    const l = { name: via };
+        socket.emit('donateIntent', { name, anon, amount: Number(amount), msg, via: l.name }, (r) => {
+          if (!r || r.error) { lastSent = ''; showErr((r && r.error) || '送出失敗，請再試一次'); return; }
+          storageSet('msctimer_donate_last', JSON.stringify({ code: r.code, name: anon ? '匿名' : name, amount: Number(amount), t: Date.now() }));
+          resEl.innerHTML = '';
+          const t = document.createElement('div');
+          t.append('✅ 已送出！你的贊助代碼：');
+          const b = document.createElement('b');
+          b.className = 'donate-code';
+          b.textContent = r.code;
+          t.appendChild(b);
+          const d = document.createElement('div');
+          d.className = 'donate-result-sub';
+          d.textContent = `${quiet ? '請在 PayPal 視窗' : `請在剛打開的 ${l.name} 頁面`}付款 NT$ ${Number(amount).toLocaleString()}，備註欄可以填上代碼「${r.code}」。${l.name === 'PayPal' ? '付款完成後會自動登上贊助榜' : '作者確認後就會登上贊助榜'}，謝謝你 ❤️`;
+          resEl.append(t, d);
+          resEl.classList.remove('hidden');
+        });
+    return true;
+  }
+
+  const monthLabel = (m, cur) => {
+    const [y, mo] = m.split('-');
+    return `${y} 年 ${Number(mo)} 月${m === cur ? '（本月）' : ''}`;
+  };
+  function render(data) {
+    sel.innerHTML = '';
+    data.months.forEach((m) => {
+      const o = document.createElement('option');
+      o.value = m; o.textContent = monthLabel(m, data.current);
+      if (m === data.month) o.selected = true;
+      sel.appendChild(o);
+    });
+    boardEl.innerHTML = '';
+    if (!data.board.length) {
+      const p = document.createElement('div');
+      p.className = 'donate-empty';
+      p.textContent = data.month === data.current ? '這個月還沒有人上榜，成為第一位贊助者吧！' : '這個月沒有贊助紀錄';
+      boardEl.appendChild(p);
+      return;
+    }
+    data.board.forEach((d, i) => {
+      const row = document.createElement('div');
+      row.className = 'donate-row' + (i < 3 ? ' top' + (i + 1) : '');
+      const rank = document.createElement('span');
+      rank.className = 'donate-rank';
+      rank.textContent = ['🥇', '🥈', '🥉'][i] || String(i + 1);
+      const main = document.createElement('div');
+      main.className = 'donate-main';
+      const line = document.createElement('div');
+      line.className = 'donate-line';
+      const nm = document.createElement('span');
+      nm.className = 'donate-name' + (d.anon ? ' anon' : '');
+      nm.textContent = d.anon ? `🕶️ ${d.name}` : d.name;
+      const amt = document.createElement('span');
+      amt.className = 'donate-amt';
+      amt.textContent = `NT$ ${d.amount.toLocaleString()}`;
+      line.append(nm, amt);
+      main.appendChild(line);
+      if (d.msg) {
+        const msg = document.createElement('div');
+        msg.className = 'donate-say';
+        msg.textContent = `「${d.msg}」`;
+        main.appendChild(msg);
+      }
+      row.append(rank, main);
+      boardEl.appendChild(row);
+    });
+  }
+  function load(month) {
+    boardEl.textContent = '讀取中…';
+    socket.emit('donateBoard', { month }, (data) => { if (data) render(data); });
+  }
+  const open = () => {
+    overlay.classList.remove('hidden');
+    overlay.querySelector('.guide-body').scrollTop = 0;
+    if (!nameIn.value && myNickname && !anonIn.checked) nameIn.value = myNickname;
+    showErr('');
+    load();
+  };
+  const close = () => overlay.classList.add('hidden');
+  btn.addEventListener('click', open);
+  sel.addEventListener('change', () => load(sel.value));
+
+  // 從付款頁自動跳回來（PayPal 的 Auto-return URL 設成 https://網站/?donated=1）
+  try {
+    const qs = new URLSearchParams(location.search);
+    if (qs.has('donated')) {
+      qs.delete('donated');
+      history.replaceState(null, '', location.pathname + (qs.toString() ? '?' + qs : '') + location.hash);
+      let last = null;
+      try { last = JSON.parse(storageGet('msctimer_donate_last') || 'null'); } catch (e) { last = null; }
+      if (last && Date.now() - last.t > 2 * 3600000) last = null; // 太久以前的不算
+      open();
+      resEl.innerHTML = '';
+      const t = document.createElement('div');
+      t.textContent = '🎉 感謝你的贊助！作者收到了會很開心 ❤️';
+      const d = document.createElement('div');
+      d.className = 'donate-result-sub';
+      d.textContent = last
+        ? `你的贊助代碼「${last.code}」（${last.name}，NT$ ${last.amount.toLocaleString()}）。PayPal 確認付款後會自動登上贊助榜（通常幾分鐘內）。`
+        : '如果想登上贊助榜，可以把暱稱和付款時間告訴作者，確認後會幫你補登。';
+      resEl.append(t, d);
+      resEl.classList.remove('hidden');
+      if (last) {
+        socket.emit('donateReturned', { code: last.code });
+        storageRemove('msctimer_donate_last');
+      }
+    }
+  } catch (e) { /* ignore */ }
+  document.getElementById('donateCloseBtn').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !overlay.classList.contains('hidden')) close(); });
+})();

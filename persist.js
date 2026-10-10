@@ -168,4 +168,28 @@ async function clearLootStats() {
   await call(['DEL', GLOBAL_LOOT_KEY]);
 }
 
-module.exports = { ENABLED, init, loadAll, markDirty, flush, removeRoom, pushKillPoint, loadKillPoints, clearKillPoints, markLootDirty, loadLootStats, clearLootStats, GLOBAL_KP_MAX, loadedFromLegacy: false };
+// 贊助紀錄（管理者手動登錄）：資料很少，有變動就直接整份寫入
+const DONATE_KEY = PREFIX + 'donations';
+async function saveDonations(list) {
+  if (!ENABLED) return;
+  await call(['SET', DONATE_KEY, JSON.stringify(list)]);
+}
+async function loadDonations() {
+  if (!ENABLED) return null;
+  const v = await call(['GET', DONATE_KEY]);
+  try { return v ? JSON.parse(v) : null; } catch (e) { return null; }
+}
+
+// 待確認的贊助（贊助者在網站上先填好暱稱／金額／留言，管理者對帳後再確認入榜）
+const DONATE_PENDING_KEY = PREFIX + 'donations_pending';
+async function saveDonatePending(list) {
+  if (!ENABLED) return;
+  await call(['SET', DONATE_PENDING_KEY, JSON.stringify(list)]);
+}
+async function loadDonatePending() {
+  if (!ENABLED) return null;
+  const v = await call(['GET', DONATE_PENDING_KEY]);
+  try { return v ? JSON.parse(v) : null; } catch (e) { return null; }
+}
+
+module.exports = { ENABLED, init, loadAll, markDirty, flush, removeRoom, pushKillPoint, loadKillPoints, clearKillPoints, markLootDirty, loadLootStats, clearLootStats, saveDonations, loadDonations, saveDonatePending, loadDonatePending, GLOBAL_KP_MAX, loadedFromLegacy: false };

@@ -56,6 +56,15 @@
 .kps-table td.verdict { font-weight:700; }
 .kps-dist { text-align:left !important; white-space:normal !important; color:var(--text-faint); font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; }
 .kps-dist b { color:#c4b5fd; }
+.kps-table td button { border:1px solid #475569; background:#1e293b; color:var(--text); border-radius:6px; padding:2px 8px; font-size:12px; cursor:pointer; }
+.kps-table td button.danger { border-color:#7f1d1d; color:#fca5a5; }
+.kps-table td.don-msg { text-align:left; white-space:normal; max-width:260px; }
+.don-ret { color:#86efac; font-size:11px; }
+.don-anon { display:flex; align-items:center; gap:4px; font-size:13px; color:var(--text); }
+.don-h { margin:14px 0 4px; font-size:14px; color:#f9a8d4; }
+.don-form { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0 10px; }
+.don-form input, .don-form select { background:#0f172a; color:var(--text); border:1px solid #475569; border-radius:6px; padding:4px 6px; font-size:13px; }
+.don-form button { border:1px solid #be185d; background:#3b1530; color:#fce7f3; border-radius:6px; padding:4px 12px; font-weight:700; cursor:pointer; }
 `;
   const styleEl = document.createElement('style');
   styleEl.textContent = css;
@@ -109,6 +118,7 @@
     });
     rawOn('admin:bannedList', (list) => { A.banned = list || []; if (A.uiReady) renderBanned(); });
     rawOn('admin:rooms', (list) => { A.rooms = list || []; if (A.uiReady) renderRooms(); });
+    rawOn('admin:donatePending', (n) => { setDonPending(n); if (n > 0) showToast('💖 有新的贊助待確認'); });
     rawOn('admin:mutedList', (list) => { A.muted = list || []; if (A.uiReady) { renderMuted(); renderUsers(); } });
     rawOn('users:update', () => { if (A.uiReady) setTimeout(renderUsers, 0); });
     rawOn('join:ack', () => { A.switchFrom = null; if (A.uiReady) setTimeout(() => { renderRooms(); loadBanned(); }, 0); });
@@ -116,6 +126,8 @@
 
   // ---------- 介面 ----------
   let panel, userListEl, mutedListEl, roomListEl, roomCountEl, editSelfBtn, clearLogBtn;
+  let donBtn = null;
+  function setDonPending(n) { if (donBtn) donBtn.textContent = n > 0 ? `💖 贊助管理（${n} 筆待確認）` : '💖 贊助管理'; }
 
   function el(tag, cls, text) {
     const e = document.createElement(tag);
@@ -157,6 +169,11 @@
     lootBtn.style.marginLeft = '6px';
     lootBtn.addEventListener('click', openLootStats);
     panel.appendChild(lootBtn);
+    donBtn = el('button', 'admin-stats-btn', '💖 贊助管理');
+    donBtn.title = '登錄 / 刪除贊助紀錄（會顯示在贊助榜）';
+    donBtn.style.marginLeft = '6px';
+    donBtn.addEventListener('click', openDonateAdmin);
+    panel.appendChild(donBtn);
     const topBar = document.querySelector('.top-bar');
     topBar.parentNode.insertBefore(panel, topBar.nextSibling);
 
@@ -218,6 +235,7 @@
     renderMuted();
     renderRooms();
     loadBanned();
+    A.socket.emit('adminDonateList', (r) => { if (r && r.pending) setDonPending(r.pending.length); });
   }
 
   function renderUsers() {
@@ -354,6 +372,150 @@
     myRoomPassword = password;
     manualJoinPending = true;
     A.socket.emit('joinRoom', { nickname: nicknameForRoom(password), password, clientId: myClientId });
+  }
+
+  // ---------- 贊助管理 ----------
+  let donOverlay = null;
+  function closeDonateAdmin() { if (donOverlay) { donOverlay.remove(); donOverlay = null; } }
+  function openDonateAdmin() {
+    if (!A.isAdmin) return;
+    A.socket.emit('adminDonateList', (res) => {
+      if (!res || !Array.isArray(res.list)) return;
+      const list = res.list;
+      const pending = res.pending || [];
+      setDonPending(pending.length);
+      closeDonateAdmin();
+      donOverlay = el('div', 'kps-overlay');
+      donOverlay.addEventListener('click', (e) => { if (e.target === donOverlay) closeDonateAdmin(); });
+      const box = el('div', 'kps-box');
+      const head = el('div', 'kps-head');
+      head.appendChild(el('h3', '', '💖 贊助管理'));
+      const close = el('button', '', '關閉');
+      close.addEventListener('click', closeDonateAdmin);
+      head.appendChild(close);
+      box.appendChild(head);
+      const body = el('div', 'kps-body');
+      // 待確認：贊助者在網站上先填好的資料（暱稱／金額／留言／代碼），對照 PayPal 等收款紀錄後按「確認入榜」
+      body.appendChild(el('h4', 'don-h', `⏳ 待確認（${pending.length}）`));
+      body.appendChild(el('div', 'kps-summary', '設定好 PayPal 付款通知（IPN）後，PayPal 付款會自動對應這裡的資料並入榜，不用手動。仍留在這裡的：①網站上填了但還沒收到款項（沒付款的可以刪除）、②「💰 已收款」但對應不到暱稱（按確認入榜指定暱稱）。歐付寶／綠界等其他管道，請對照收款紀錄後手動確認。'));
+      const pt = el('table', 'kps-table');
+      const ph = el('tr');
+      ['送出時間', '代碼', '暱稱', '金額', '管道', '想說的話', ''].forEach((h) => ph.appendChild(el('th', '', h)));
+      pt.appendChild(ph);
+      if (pending.length === 0) {
+        const tr = el('tr'); const td = el('td', '', '目前沒有待確認的贊助'); td.colSpan = 7; tr.appendChild(td); pt.appendChild(tr);
+      }
+      pending.forEach((d) => {
+        const tr = el('tr');
+        tr.appendChild(el('td', '', new Date(d.at).toLocaleString()));
+        tr.appendChild(el('td', 'name', d.code || '—'));
+        tr.appendChild(el('td', 'name', d.anon ? `🕶️ 匿名${d.name ? `（${d.name}）` : ''}` : (d.name || '（未填）')));
+        tr.appendChild(el('td', '', d.paid && d.paid.currency !== 'TWD' ? `${d.paid.gross} ${d.paid.currency}` : 'NT$ ' + d.amount.toLocaleString()));
+        const viaTd = el('td', '', d.via || '');
+        if (d.paid) {
+          viaTd.appendChild(el('div', 'don-ret', '💰 已收款'));
+          viaTd.title = `PayPal 已收到款項（付款人：${d.paid.payer}，交易編號 ${d.paid.txn}），但對應不到網站上填的資料，請指定暱稱`;
+        }
+        if (d.returnedAt) {
+          viaTd.appendChild(el('div', 'don-ret', '↩ 已從付款頁返回'));
+          viaTd.title = '付款完成後自動跳回網站的時間：' + new Date(d.returnedAt).toLocaleString() + '（僅供參考，仍請對照收款紀錄）';
+        }
+        tr.appendChild(viaTd);
+        tr.appendChild(el('td', 'don-msg', d.msg || ''));
+        const act = el('td', '');
+        const ok = el('button', '', '確認入榜');
+        ok.addEventListener('click', () => {
+          let name = d.name;
+          let anon = !!d.anon;
+          if (d.paid || (!name && !anon)) {
+            name = prompt(`這筆款項${d.paid ? `（付款人：${d.paid.payer}）` : ''}要算在哪個暱稱？\n（留空 = 匿名贊助，榜上顯示「匿名大大」）`, d.name || '');
+            if (name === null) return;
+            name = name.trim();
+            anon = !name;
+          }
+          const v = prompt(`確認「${anon ? '匿名大大' : name}」的贊助入榜。\n實際收到的金額（NT$）：`, String(d.amount || ''));
+          if (v === null) return;
+          A.socket.emit('adminDonateConfirm', { id: d.id, amount: Number(v), name, anon }, (r) => {
+            if (r && r.error) return showToast(r.error);
+            showToast('已入榜');
+            openDonateAdmin();
+          });
+        });
+        const del = el('button', 'danger', '刪除');
+        del.style.marginLeft = '4px';
+        del.addEventListener('click', () => {
+          if (!confirm(`確定要刪除「${d.name || '（未填）'}」${d.code ? `（代碼 ${d.code}）` : ''}這筆待確認的贊助嗎？`)) return;
+          A.socket.emit('adminDonatePendingDelete', { id: d.id }, (r) => { if (r && r.error) showToast(r.error); else openDonateAdmin(); });
+        });
+        act.append(ok, del);
+        tr.appendChild(act);
+        pt.appendChild(tr);
+      });
+      body.appendChild(pt);
+
+      body.appendChild(el('h4', 'don-h', '✍️ 手動登錄'));
+      body.appendChild(el('div', 'kps-summary', '沒有先在網站填寫、直接付款的贊助，可以在這裡手動登錄（同暱稱當月金額自動加總，留言顯示最新一則；日期決定算在哪個月）。'));
+
+      const form = el('div', 'don-form');
+      const mk = (tag, ph, w) => { const i = el(tag, ''); if (ph) i.placeholder = ph; if (w) i.style.width = w; return i; };
+      const nameI = mk('input', '暱稱', '130px'); nameI.maxLength = 20;
+      const amtI = mk('input', '金額 NT$', '100px'); amtI.type = 'number'; amtI.min = '1';
+      const msgI = mk('input', '想說的話（選填，最多 100 字）', '260px'); msgI.maxLength = 100;
+      const dateI = mk('input', '', '140px'); dateI.type = 'date';
+      const tw = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+      dateI.value = tw;
+      const anonL = el('label', 'don-anon');
+      const anonI = el('input', ''); anonI.type = 'checkbox';
+      anonL.append(anonI, document.createTextNode(' 匿名'));
+      anonI.addEventListener('change', () => { nameI.disabled = anonI.checked; });
+      const viaI = el('select', '');
+      ['PayPal', '歐付寶', '綠界', '其他'].forEach((v) => { const o = el('option', '', v); o.value = v; viaI.appendChild(o); });
+      const add = el('button', '', '＋ 登錄');
+      add.addEventListener('click', () => {
+        // 日期以台灣時間中午計算，避免時區造成跨日
+        const at = dateI.value ? Date.parse(dateI.value + 'T12:00:00+08:00') : Date.now();
+        A.socket.emit('adminDonateAdd', { name: anonI.checked ? '' : nameI.value, anon: anonI.checked, amount: amtI.value, msg: msgI.value, at, via: viaI.value }, (r) => {
+          if (r && r.error) return showToast(r.error);
+          showToast('已登錄');
+          openDonateAdmin();
+        });
+      });
+      [nameI, anonL, amtI, msgI, dateI, viaI, add].forEach((x) => form.appendChild(x));
+      body.appendChild(form);
+
+      body.appendChild(el('h4', 'don-h', '🏆 已入榜紀錄'));
+      const table = el('table', 'kps-table');
+      const thead = el('tr');
+      ['日期', '暱稱', '金額', '管道', '想說的話', ''].forEach((h) => thead.appendChild(el('th', '', h)));
+      table.appendChild(thead);
+      if (list.length === 0) {
+        const tr = el('tr'); const td = el('td', '', '還沒有任何贊助紀錄'); td.colSpan = 6; tr.appendChild(td); table.appendChild(tr);
+      }
+      list.forEach((d) => {
+        const tr = el('tr');
+        tr.appendChild(el('td', '', new Date(d.at + 8 * 3600000).toISOString().slice(0, 10)));
+        tr.appendChild(el('td', 'name', d.anon ? `🕶️ 匿名${d.name ? `（${d.name}）` : ''}` : d.name));
+        tr.appendChild(el('td', '', 'NT$ ' + d.amount.toLocaleString()));
+        const via2 = el('td', '', d.via || '');
+        if (d.auto) via2.appendChild(el('div', 'don-ret', '⚡ 自動入榜'));
+        tr.appendChild(via2);
+        tr.appendChild(el('td', 'don-msg', d.msg || ''));
+        const act = el('td', '');
+        const del = el('button', 'danger', '刪除');
+        del.addEventListener('click', () => {
+          if (!confirm(`確定要刪除「${d.name}」NT$ ${d.amount} 這筆贊助紀錄嗎？`)) return;
+          A.socket.emit('adminDonateDelete', { id: d.id }, (r) => { if (r && r.error) showToast(r.error); else openDonateAdmin(); });
+        });
+        act.appendChild(del);
+        tr.appendChild(act);
+        table.appendChild(tr);
+      });
+      body.appendChild(table);
+      box.appendChild(body);
+      donOverlay.appendChild(box);
+      document.body.appendChild(donOverlay);
+      nameI.focus();
+    });
   }
 
   // ---------- 全站線上使用者 ----------

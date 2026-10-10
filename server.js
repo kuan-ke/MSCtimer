@@ -107,6 +107,14 @@ app.get(['/', '/index.html'], (req, res) => {
     if (process.env.GOOGLE_SITE_VERIFICATION) extra.push(`<meta name="google-site-verification" content="${String(process.env.GOOGLE_SITE_VERIFICATION).replace(/"/g, '')}" />`);
     extra.push(`<link rel="canonical" href="${siteUrl(req)}/" />`);
     extra.push(`<meta property="og:url" content="${siteUrl(req)}/" />`);
+    // 結構化資料：告訴 Google 網站名稱是 MSCtimer（搜尋結果上方顯示的網站名稱，不然會顯示成主機商 Render）
+    extra.push(`<script type="application/ld+json">${JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'WebSite',
+      name: 'MSCtimer',
+      alternateName: ['MSCtimer 楓之谷經典版團隊野王計時器', '楓之谷經典版團隊野王計時器'],
+      url: siteUrl(req) + '/'
+    })}</script>`);
     // 分享預覽圖要用完整網址，Discord / LINE / FB 才抓得到
     html = html.replace('<meta property="og:image" content="/images/', `<meta property="og:image" content="${siteUrl(req)}/images/`);
     html = html.replace('</head>', extra.join('\n') + '\n</head>');
@@ -463,6 +471,159 @@ Object.entries(DROPS).forEach(([img, b]) => { DROP_ITEMS[img] = new Map((b.drops
 const LOOT_MIN_KILLS = 10; // 房間這隻王擊殺達 10 次以上，才算進全站戰利品統計
 
 // 全站戰利品統計：{ 房間代號: { 王圖檔: { k: 擊殺數, i: { 道具編號: 次數 }, t: 更新時間 } } }
+// ---------- 贊助榜 ----------
+// 由管理者手動登錄（PayPal / 歐付寶 / 綠界收到款項後，依贊助者備註的暱稱登錄）；每個月（台灣時間）一個排行榜
+let donations = []; // [{ id, name, amount, msg, at, via }]
+const DONATE_VIA = ['PayPal', '歐付寶', '綠界', '其他'];
+const ANON_NAME = '匿名大大';
+function monthKey(t) { return new Date(t + 8 * 3600000).toISOString().slice(0, 7); } // YYYY-MM（台灣時間）
+function donateBoard(month) {
+  const map = new Map();
+  donations.filter((d) => monthKey(d.at) === month).sort((a, b) => a.at - b.at).forEach((d) => {
+    // 匿名贊助：每一筆各自一行，不公開暱稱
+    const k = d.anon ? 'anon:' + d.id : normalizeName(d.name);
+    const e = map.get(k) || { name: d.anon ? ANON_NAME : d.name, anon: !!d.anon, amount: 0, msg: '', count: 0, last: 0 };
+    e.amount += d.amount; e.count++; e.last = d.at; if (!d.anon) e.name = d.name;
+    if (d.msg) e.msg = d.msg;
+    map.set(k, e);
+  });
+  return Array.from(map.values()).sort((a, b) => b.amount - a.amount || a.last - b.last)
+    .map(({ name, anon, amount, msg, count }) => ({ name, anon, amount, msg, count }));
+}
+function donateMonths() {
+  const set = new Set(donations.map((d) => monthKey(d.at)));
+  set.add(monthKey(Date.now()));
+  return Array.from(set).sort().reverse();
+}
+function saveDonations() { persist.saveDonations(donations).catch((e) => console.error('[贊助] 儲存失敗：', e.message)); }
+// 待確認的贊助：[{ id, code, name, amount, msg, via, at }]
+let donatePending = [];
+const DONATE_PENDING_MAX = 300;
+function saveDonatePending() { persist.saveDonatePending(donatePending).catch((e) => console.error('[贊助] 儲存待確認失敗：', e.message)); }
+function newDonateCode() {
+  for (let i = 0; i < 50; i++) {
+    const c = 'M' + String(Math.floor(1000 + Math.random() * 9000));
+    if (!donatePending.some((d) => d.code === c)) return c;
+  }
+  return 'M' + Date.now().toString().slice(-6);
+}
+const donateIntentLog = new Map(); // clientId/socket -> 最近送出的時間（防洗版）
+
+// ---------- PayPal 付款通知（IPN）：有人付款 → PayPal 主動通知網站 → 自動對應「待確認」並入榜 ----------
+// 設定：PayPal 帳戶設定 → 網站付款 → 即時付款通知（IPN）→ 通知網址 https://你的網站/paypal/ipn
+// 安全：收到的通知會原封不動送回 PayPal 驗證，PayPal 回覆 VERIFIED 才算數，所以無法偽造。
+const IPN_VERIFY_URL = process.env.PAYPAL_IPN_SANDBOX === '1'
+  ? 'https://ipnpb.sandbox.paypal.com/cgi-bin/webscr'
+  : 'https://ipnpb.paypal.com/cgi-bin/webscr';
+const PAYPAL_RECEIVER_EMAIL = (process.env.PAYPAL_RECEIVER_EMAIL || '').trim().toLowerCase();
+const MATCH_WINDOW_MS = 6 * 3600000; // 只對應 6 小時內送出的「待確認」
+
+// 依 IPN 的 charset 解碼（中文名字 / 備註可能不是 UTF-8）
+function parseIpnBody(raw) {
+  const pairs = raw.split('&').filter(Boolean).map((kv) => {
+    const i = kv.indexOf('=');
+    return [i < 0 ? kv : kv.slice(0, i), i < 0 ? '' : kv.slice(i + 1)];
+  });
+  const cs = (pairs.find(([k]) => k === 'charset') || [])[1] || 'utf-8';
+  let dec;
+  try { dec = new TextDecoder(decodeURIComponent(cs).toLowerCase()); } catch (e) { dec = new TextDecoder('utf-8'); }
+  const toStr = (v) => {
+    const s0 = v.replace(/\+/g, ' ');
+    const bytes = [];
+    for (let i = 0; i < s0.length; i++) {
+      if (s0[i] === '%' && /^[0-9a-fA-F]{2}$/.test(s0.slice(i + 1, i + 3))) { bytes.push(parseInt(s0.slice(i + 1, i + 3), 16)); i += 2; }
+      else { const b = Buffer.from(s0[i], 'utf8'); for (const x of b) bytes.push(x); }
+    }
+    return dec.decode(Buffer.from(bytes));
+  };
+  const out = {};
+  pairs.forEach(([k, v]) => { out[toStr(k)] = toStr(v); });
+  return out;
+}
+
+function notifyAdmins(msg) {
+  for (const [, s] of io.sockets.sockets) if (s.data.isAdmin) { s.emit('admin:donatePending', donatePending.length); if (msg) s.emit('error:toast', msg); }
+}
+
+// 處理一筆「已驗證」的 IPN（拆出來方便測試）
+function handlePaypalPayment(f) {
+  const status = String(f.payment_status || '');
+  const txn = String(f.txn_id || '');
+  // 退款 / 撤銷：把那筆贊助從榜上拿掉
+  if (/^(Refunded|Reversed|Canceled_Reversal)$/i.test(status) && f.parent_txn_id) {
+    const i = donations.findIndex((d) => d.txn === f.parent_txn_id);
+    if (i >= 0) { const d = donations.splice(i, 1)[0]; saveDonations(); notifyAdmins(`↩ PayPal 退款：已將「${d.name}」NT$ ${d.amount} 從贊助榜移除`); }
+    return 'refund';
+  }
+  if (status !== 'Completed' || !txn) return 'ignored';
+  if (PAYPAL_RECEIVER_EMAIL && String(f.receiver_email || '').toLowerCase() !== PAYPAL_RECEIVER_EMAIL) return 'not-mine';
+  if (donations.some((d) => d.txn === txn) || donatePending.some((d) => d.paid && d.paid.txn === txn)) return 'duplicate';
+
+  const gross = Number(f.mc_gross);
+  const currency = String(f.mc_currency || '');
+  const memo = String(f.memo || f.custom || '').trim();
+  const payer = `${f.first_name || ''} ${f.last_name || ''}`.trim() || String(f.payer_email || '');
+  const now = Date.now();
+  const open = donatePending.filter((p) => !p.paid && now - p.at < MATCH_WINDOW_MS);
+
+  // 1) 備註裡有贊助代碼 → 直接對應；2) 台幣金額一樣 → 先找「已從付款頁返回」的，再找最早送出的
+  let match = null;
+  const codeM = memo.toUpperCase().match(/M\d{4}/);
+  if (codeM) match = open.find((p) => p.code === codeM[0]) || null;
+  if (!match && currency === 'TWD' && Number.isFinite(gross)) {
+    const same = open.filter((p) => p.amount === Math.round(gross)).sort((a, b) => a.at - b.at);
+    match = same.find((p) => p.returnedAt) || same[0] || null;
+  }
+
+  if (match) {
+    donatePending.splice(donatePending.indexOf(match), 1);
+    const amount = currency === 'TWD' && gross >= 1 ? Math.round(gross) : match.amount;
+    donations.push({ id: match.id, name: match.name, anon: !!match.anon, amount, msg: match.msg, at: now, via: 'PayPal', txn, auto: true });
+    saveDonatePending();
+    saveDonations();
+    notifyAdmins(`💖 PayPal 自動入榜：${match.anon ? '匿名' + (match.name ? `（${match.name}）` : '') : match.name} NT$ ${amount}`);
+    return 'matched';
+  }
+  // 對應不到（沒先在網站填資料）→ 放進待確認，標示「已收款」，等管理者指定暱稱
+  donatePending.push({
+    id: `${now}-${Math.random().toString(36).slice(2, 8)}`,
+    code: '',
+    name: '',
+    amount: currency === 'TWD' && gross >= 1 ? Math.round(gross) : 0,
+    msg: memo.slice(0, 100),
+    via: 'PayPal',
+    at: now,
+    paid: { txn, payer: payer.slice(0, 60), gross: f.mc_gross, currency }
+  });
+  saveDonatePending();
+  notifyAdmins(`💰 收到 PayPal 款項 ${f.mc_gross} ${currency}（${payer}），但對應不到暱稱，請到贊助管理指定`);
+  return 'unmatched';
+}
+
+app.post('/paypal/ipn', (req, res) => {
+  let raw = '';
+  req.setEncoding('latin1'); // 保留原始位元組，原封不動送回 PayPal 驗證
+  req.on('data', (c) => { raw += c; if (raw.length > 100000) req.destroy(); });
+  req.on('end', async () => {
+    res.status(200).end(); // 先回 200，PayPal 才不會一直重送
+    try {
+      const vr = await fetch(IPN_VERIFY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'MSCtimer-IPN' },
+        body: Buffer.from('cmd=_notify-validate&' + raw, 'latin1')
+      });
+      const text = (await vr.text()).trim();
+      if (text !== 'VERIFIED') { console.warn('[PayPal] IPN 驗證失敗：', text.slice(0, 40)); return; }
+      const result = handlePaypalPayment(parseIpnBody(raw));
+      console.log('[PayPal] IPN', result);
+    } catch (e) {
+      console.error('[PayPal] IPN 處理失敗：', e.message);
+    }
+  });
+});
+module.exports.__handlePaypalPayment = (f) => handlePaypalPayment(f);
+module.exports.__parseIpnBody = parseIpnBody;
+
 let globalLoot = {};
 function roomShort(room) { return String(room.id).slice(-6); }
 // 被管理者排除的房間（亂點等），之後不再計入：globalLoot._x = [房間代號…]
@@ -1114,6 +1275,117 @@ io.on('connection', (socket) => {
   });
 
   // 管理者：全站時間點統計 / 下載 CSV / 清空
+  // ---------- 贊助榜（任何人都可以看；只有管理者可以登錄 / 刪除） ----------
+  socket.on('donateBoard', ({ month } = {}, cb) => {
+    if (typeof cb !== 'function') return;
+    const months = donateMonths();
+    const m = typeof month === 'string' && /^\d{4}-\d{2}$/.test(month) ? month : monthKey(Date.now());
+    cb({ month: m, current: monthKey(Date.now()), months, board: donateBoard(m) });
+  });
+  // 贊助者付款前先在網站填好：暱稱、金額、想說的話 → 拿到一組代碼，管理者對帳後確認入榜
+  socket.on('donateIntent', ({ name, amount, msg, via, anon } = {}, cb) => {
+    const reply = typeof cb === 'function' ? cb : () => {};
+    const n = (typeof name === 'string' ? name : '').trim().slice(0, 20);
+    const amt = Math.round(Number(amount));
+    if (!n && !anon) return reply({ error: '請輸入暱稱' });
+    if (!Number.isFinite(amt) || amt < 1 || amt > 1000000) return reply({ error: '請輸入正確的金額' });
+    const key = socket.data.clientId || socket.id;
+    const now = Date.now();
+    const recent = (donateIntentLog.get(key) || []).filter((t) => now - t < 10 * 60000);
+    if (recent.length >= 5) return reply({ error: '送出太多次了，請稍後再試' });
+    recent.push(now);
+    donateIntentLog.set(key, recent);
+    const entry = {
+      id: `${now}-${Math.random().toString(36).slice(2, 8)}`,
+      code: newDonateCode(),
+      name: n, anon: !!anon, amount: amt,
+      msg: (typeof msg === 'string' ? msg : '').trim().slice(0, 100),
+      via: DONATE_VIA.includes(via) ? via : '其他',
+      at: now
+    };
+    donatePending.push(entry);
+    if (donatePending.length > DONATE_PENDING_MAX) donatePending.splice(0, donatePending.length - DONATE_PENDING_MAX);
+    saveDonatePending();
+    for (const [, s] of io.sockets.sockets) if (s.data.isAdmin) s.emit('admin:donatePending', donatePending.length);
+    reply({ ok: true, code: entry.code });
+  });
+
+  // 贊助者從付款頁自動跳回網站（只是「可能已付款」的提示，任何人都能打開這個網址，所以不會自動入榜）
+  socket.on('donateReturned', ({ code } = {}) => {
+    if (typeof code !== 'string') return;
+    const p = donatePending.find((d) => d.code === code);
+    if (!p || p.returnedAt) return;
+    p.returnedAt = Date.now();
+    saveDonatePending();
+    for (const [, s] of io.sockets.sockets) if (s.data.isAdmin) s.emit('admin:donatePending', donatePending.length);
+  });
+
+  socket.on('adminDonateList', (cb) => {
+    if (typeof cb !== 'function' || !socket.data.isAdmin) return;
+    cb({
+      list: donations.slice().sort((a, b) => b.at - a.at).slice(0, 300),
+      pending: donatePending.slice().sort((a, b) => b.at - a.at)
+    });
+  });
+  // 確認待確認的贊助（可修正實際收到的金額）→ 入榜
+  socket.on('adminDonateConfirm', ({ id, amount, name, anon } = {}, cb) => {
+    const reply = typeof cb === 'function' ? cb : () => {};
+    if (!socket.data.isAdmin) return reply({ error: '沒有權限' });
+    const i = donatePending.findIndex((d) => d.id === id);
+    if (i < 0) return reply({ error: '找不到這筆' });
+    const p = donatePending[i];
+    const amt = amount === undefined ? p.amount : Math.round(Number(amount));
+    if (!Number.isFinite(amt) || amt < 1 || amt > 1000000) return reply({ error: '金額不正確' });
+    const nm = (typeof name === 'string' && name.trim() ? name.trim() : p.name || '').slice(0, 20);
+    const isAnon = anon === undefined ? (!!p.anon || !nm) : !!anon;
+    if (!nm && !isAnon) return reply({ error: '請輸入暱稱' });
+    donatePending.splice(i, 1);
+    const entry = { id: p.id, name: nm, anon: isAnon, amount: amt, msg: p.msg, at: Date.now(), via: p.via };
+    if (p.paid) entry.txn = p.paid.txn;
+    donations.push(entry);
+    saveDonatePending();
+    saveDonations();
+    reply({ ok: true });
+  });
+  socket.on('adminDonatePendingDelete', ({ id } = {}, cb) => {
+    const reply = typeof cb === 'function' ? cb : () => {};
+    if (!socket.data.isAdmin) return reply({ error: '沒有權限' });
+    const i = donatePending.findIndex((d) => d.id === id);
+    if (i < 0) return reply({ error: '找不到這筆' });
+    donatePending.splice(i, 1);
+    saveDonatePending();
+    reply({ ok: true });
+  });
+  socket.on('adminDonateAdd', ({ name, amount, msg, at, via, anon } = {}, cb) => {
+    const reply = typeof cb === 'function' ? cb : () => {};
+    if (!socket.data.isAdmin) return reply({ error: '沒有權限' });
+    const n = (typeof name === 'string' ? name : '').trim().slice(0, 20);
+    const amt = Math.round(Number(amount));
+    if (!n && !anon) return reply({ error: '請輸入暱稱（或勾選匿名）' });
+    if (!Number.isFinite(amt) || amt < 1 || amt > 1000000) return reply({ error: '金額不正確' });
+    let t = Number(at);
+    if (!Number.isFinite(t) || t <= 0 || t > Date.now() + 86400000) t = Date.now();
+    const entry = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      name: n, anon: !!anon || !n, amount: amt,
+      msg: (typeof msg === 'string' ? msg : '').trim().slice(0, 100),
+      at: t,
+      via: DONATE_VIA.includes(via) ? via : '其他'
+    };
+    donations.push(entry);
+    saveDonations();
+    reply({ ok: true, entry });
+  });
+  socket.on('adminDonateDelete', ({ id } = {}, cb) => {
+    const reply = typeof cb === 'function' ? cb : () => {};
+    if (!socket.data.isAdmin) return reply({ error: '沒有權限' });
+    const i = donations.findIndex((d) => d.id === id);
+    if (i < 0) return reply({ error: '找不到這筆' });
+    donations.splice(i, 1);
+    saveDonations();
+    reply({ ok: true });
+  });
+
   // 管理者：全站所有線上使用者（同一瀏覽器同暱稱的多個分頁只算一人；不含隱身的管理者）
   socket.on('adminOnlineUsers', (cb) => {
     if (typeof cb !== 'function' || !socket.data.isAdmin) return;
@@ -1483,6 +1755,9 @@ async function start() {
       try {
         globalKillPoints = await persist.loadKillPoints();
         globalLoot = (await persist.loadLootStats()) || {};
+        donations = (await persist.loadDonations()) || [];
+        donatePending = (await persist.loadDonatePending()) || [];
+        console.log(`[保存] 已讀回 ${donations.length} 筆贊助紀錄`);
         // 門檻調整後，已經達標的房間啟動時就補進全站統計
         rooms.forEach((r) => Object.keys(DROP_ITEMS).forEach((img) => updateGlobalLoot(r, img)));
         console.log(`[保存] 已讀回 ${globalKillPoints.length} 筆全站時間點紀錄`);

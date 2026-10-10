@@ -7,12 +7,15 @@
 <meta name="description" content="楓之谷經典版（MapleStory Classic）團隊野王計時器：多人同步 60 頻道王重生倒數、重生區間提醒、擊殺紀錄、時間點統計、王的戰利品清單與掉落紀錄。免註冊，輸入房間密碼即可和隊友共用。" />
 <meta name="keywords" content="楓之谷經典版,MapleStory Classic,Artale,野王,王計時器,重生時間,紅寶王,樹妖王,巨居蟹,殭屍猴王,蘑菇王,殭屍蘑菇王,沼澤巨鱷,巴洛古,艾利傑,雪毛怪人,戰利品,掉落物" />
 <meta property="og:type" content="website" />
+<meta property="og:site_name" content="MSCtimer" />
 <meta property="og:title" content="MSCtimer｜楓之谷經典版｜團隊野王計時器" />
 <meta property="og:description" content="多人同步 60 頻道野王重生倒數、提醒、擊殺與戰利品紀錄，輸入房間密碼即可和隊友共用。" />
 <meta property="og:image" content="/images/og-image.png?v=2" />
 <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" />
 <meta name="twitter:card" content="summary_large_image" />
+<meta name="application-name" content="MSCtimer" />
+<meta name="apple-mobile-web-app-title" content="MSCtimer" />
 <meta name="theme-color" content="#0f172a" />
 <link rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48" />
 <link rel="icon" type="image/png" sizes="32x32" href="images/favicon-32.png" />
@@ -21,7 +24,7 @@
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-<noscript>楓之谷經典版團隊野王計時器：多人同步的 60 頻道野王重生倒數工具，支援紅寶王、樹妖王、巨居蟹、殭屍猴王、蘑菇王、殭屍蘑菇王、沼澤巨鱷、巴洛古、艾利傑、雪毛怪人的重生區間提醒、擊殺紀錄與戰利品清單。請開啟 JavaScript 使用。</noscript>
+<noscript>MSCtimer 是楓之谷經典版（MapleStory Classic）的團隊野王計時器：多人同步 60 頻道王重生倒數、重生區間提醒、擊殺紀錄、時間點統計、王的戰利品清單與掉落紀錄。支援紅寶王、樹妖王、巨居蟹、殭屍猴王、蘑菇王、殭屍蘑菇王、沼澤巨鱷、巴洛古、艾利傑、雪毛怪人。免註冊，輸入房間密碼即可和隊友共用。（請開啟 JavaScript 使用）</noscript>
 <div id="app">
 
   <header class="top-bar">
@@ -34,10 +37,10 @@
       </div>
     </div>
     <div class="top-bar-right">
-      <button id="importBtn" class="top-btn" title="匯入本網站匯出的計時（只有隊長可以使用）">📥 匯入</button>
-      <button id="exportBtn" class="top-btn" title="匯出目前房間的計時：密鑰（可匯入）或文字時間表（只有隊長可以使用）">📋 匯出</button>
+      <button id="importBtn" class="top-btn" title="匯入本網站匯出的計時（只有隊長可以使用）">📥<span class="btn-label"> 匯入</span></button>
+      <button id="exportBtn" class="top-btn" title="匯出目前房間的計時：密鑰（可匯入）或文字時間表（只有隊長可以使用）">📋<span class="btn-label"> 匯出</span></button>
       <div class="sound-wrap">
-        <button id="soundBtn" class="top-btn" title="音效設定：擊殺音效、提示音開關">🔊 音效</button>
+        <button id="soundBtn" class="top-btn" title="音效設定：擊殺音效、提示音開關">🔊<span class="btn-label"> 音效</span></button>
         <div id="soundPop" class="sound-pop hidden">
           <label class="sound-opt"><span>擊殺音效</span><input type="checkbox" id="optKillSound"><span class="sound-switch"></span></label>
           <div class="sound-vol" title="擊殺音效音量（往左小、往右大）"><span class="vol-ico">🔈</span><input type="range" id="killVolume" min="0" max="100" step="1"><span class="vol-ico">🔊</span></div>
@@ -46,11 +49,13 @@
           <div class="sound-note">只影響自己的瀏覽器，會記住設定</div>
         </div>
       </div>
-      <button id="pipBtn" class="top-btn" title="開啟子母畫面（浮動在最上層的小視窗）">📺 子母畫面</button>
+      <button id="pipBtn" class="top-btn" title="開啟子母畫面（浮動在最上層的小視窗）">📺<span class="btn-label"> 子母畫面</span></button>
       <span id="roomDisplay" class="room-badge hidden" title="點一下顯示 / 隱藏房間密碼">🔐 房間：<span id="roomPasswordText">••••</span></span>
       <button id="switchRoomBtn" class="top-btn hidden" title="離開目前房間，輸入其他房間密碼">換房間</button>
       <span id="myNicknameDisplay" class="my-nickname"></span>
       <div id="connStatus" class="conn-status">連線中...</div>
+      <button id="donateBtn" class="top-btn donate-btn" title="贊助作者、查看本月贊助榜">💖 贊助</button>
+      <button id="guideBtn" class="top-btn guide-btn" title="使用指南：這個網站可以做什麼、怎麼用">📖 指南</button>
     </div>
   </header>
 
@@ -132,7 +137,10 @@
 <!-- 暱稱設定：強制彈窗，未設定前無法操作 -->
 <div id="nicknameOverlay" class="modal-overlay">
   <div class="modal join-modal">
-    <h3>進入計時器房間</h3>
+    <div class="join-title-row">
+      <h3>進入計時器房間</h3>
+      <button type="button" id="joinGuideBtn" class="btn-secondary join-guide-btn" title="第一次使用？看看這個網站可以做什麼、怎麼用">📖 使用指南</button>
+    </div>
 
     <label class="join-label" for="nicknameInput">暱稱</label>
     <input type="text" id="nicknameInput" maxlength="20" placeholder="輸入暱稱..." autocomplete="off" data-lpignore="true" data-1p-ignore="true" />
@@ -149,6 +157,103 @@
     <div id="nicknameError" class="nickname-error hidden"></div>
     <div class="modal-buttons">
       <button id="nicknameSubmitBtn" class="btn-primary">進入房間</button>
+    </div>
+  </div>
+</div>
+
+<!-- 贊助 -->
+<div id="donateOverlay" class="modal-overlay hidden">
+  <div class="modal guide-modal donate-modal" role="dialog" aria-labelledby="donateTitle">
+    <div class="guide-head">
+      <h3 id="donateTitle">💖 贊助 MSCtimer</h3>
+      <button type="button" id="donateCloseBtn" class="btn-secondary">關閉</button>
+    </div>
+    <div class="guide-body">
+      <p class="donate-msg">每個月都要花很多 token 跟伺服器維護費用……<br />如果大大們有打到好寶物，或是有餘力的話，也可以請作者喝杯奶茶，感激不盡 &gt;&lt;</p>
+      <h4 class="donate-step">① 想上贊助榜？先填寫（也可以匿名）</h4>
+      <div class="donate-form">
+        <label>暱稱<input type="text" id="donName" maxlength="20" placeholder="要顯示在贊助榜上的名字" autocomplete="off" /></label>
+        <label>金額（NT$）<input type="number" id="donAmount" min="1" step="1" placeholder="例如 100" /></label>
+        <label class="wide">想說的話（選填）<input type="text" id="donMsg" maxlength="100" placeholder="最多 100 字，會顯示在贊助榜上" autocomplete="off" /></label>
+        <label class="wide donate-anon"><input type="checkbox" id="donAnon" /> 🕶️ 匿名贊助（榜上顯示「匿名大大」，不公開暱稱；金額和想說的話照常顯示）</label>
+      </div>
+      <h4 class="donate-step">② 選擇付款方式</h4>
+      <div class="donate-links" id="donateLinks"></div>
+      <div id="donateError" class="nickname-error hidden"></div>
+      <div id="donateResult" class="donate-result hidden"></div>
+      <p class="donate-note">💡 按付款方式後會另開付款頁面，並給你一組<b>贊助代碼</b>。付款金額請和上面填的一樣（有備註欄的話也可以填上代碼）。<b>PayPal 付款完成後會自動登上贊助榜</b>；其他管道由作者確認後登錄。只想默默支持的話，也可以不填直接付款 ❤️</p>
+
+      <div class="donate-board-head">
+        <h4>🏆 贊助榜</h4>
+        <select id="donateMonthSel" title="選擇月份"></select>
+      </div>
+      <p class="donate-sub">每個月重新計算，同一個暱稱當月的贊助金額會加總，金額最高的排在最上面。</p>
+      <div id="donateBoard" class="donate-board"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 使用指南 -->
+<div id="guideOverlay" class="modal-overlay hidden">
+  <div class="modal guide-modal" role="dialog" aria-labelledby="guideTitle">
+    <div class="guide-head">
+      <h3 id="guideTitle">📖 MSCtimer 使用指南</h3>
+      <button type="button" id="guideCloseBtn" class="btn-secondary">關閉</button>
+    </div>
+    <div class="guide-body">
+      <p class="guide-lead">一群人一起顧野王時，最麻煩的是「哪個 CH 的王什麼時候會重生」。MSCtimer 讓整隊共用同一組 60 頻道計時器：誰按了什麼，所有人的畫面馬上同步。</p>
+
+      <h4>🚀 三步驟開始</h4>
+      <ol>
+        <li><b>取暱稱</b>：會顯示在你按的 CH 旁邊，讓隊友知道是誰打的。<span class="guide-warn">暱稱只能取一次，取後無法更改。</span></li>
+        <li><b>輸入 6 碼房間密碼</b>（英文或數字，大小寫有分）。輸入新密碼就是開新房間，開房的人就是隊長；按「🎲 隨機」可以產生一組沒人用過的密碼。</li>
+        <li><b>把密碼分享給隊友</b>，輸入同一組密碼就會進到同一間房間（每間最多 10 人）。免註冊、免下載。</li>
+      </ol>
+
+      <h4>⏱ 計時器怎麼按</h4>
+      <ul>
+        <li><b>上方選王</b>：10 隻野王已內建重生時間，點圖示切換；也可以按「＋」新增自訂分頁（雙擊分頁名稱可改名）。</li>
+        <li><b>左鍵點 CH</b>：王剛死時按一下，從現在開始倒數；再按一次會停止。</li>
+        <li><b>右鍵點 CH</b>：王已經死一陣子了？輸入「死亡時間」，從那個時間開始算。</li>
+        <li><b>中鍵點 CH</b>：知道王什麼時候會重生？直接輸入「重生時間」。（筆電沒有中鍵，可以在右鍵視窗裡切換）</li>
+        <li><b>看顏色就懂</b>：<span class="guide-chip c-count">藍＝倒數中</span><span class="guide-chip c-win">綠＝重生區間</span><span class="guide-chip c-app">橘＝出現中</span>。進入重生區間、出現時都會閃爍並響提示音；過了最大時間 10 分鐘沒人處理，會自動回到待機。</li>
+      </ul>
+
+      <h4>🎯 右邊面板</h4>
+      <ul>
+        <li><b>進行中頻道</b>：分成「倒數中」和「出現中」，依時間排好。「本王」只看目前選的王，「總頻道」一次看全部的王。</li>
+        <li><b>擊殺</b>：打掉王時按該 CH 的「擊殺」，會從現在重新倒數、擊殺次數 +1，整間房間都會聽到王的受傷或死亡音效。</li>
+        <li><b>待命</b>：按下會顯示你的名字，讓隊友知道這個 CH 已經有人在顧，避免撞車。</li>
+        <li><b>⏱ 時間點</b>：每次擊殺都會記下「王重生多久後被打掉」，並自動判斷是五分區間還是四分區間，幫你抓出王的重生規律。</li>
+        <li><b>📦 戰利品</b>：記錄這間房間打到了哪些掉落物。</li>
+        <li><b>操作紀錄</b>：誰在什麼時候按了哪個 CH，全部記下來。</li>
+      </ul>
+
+      <h4>🎁 王的資料與戰利品</h4>
+      <ul>
+        <li>王的名字下方有等級、血量、經驗值、出沒地點。</li>
+        <li>點「戰利品」可以看這隻王會掉什麼（附圖示）；在清單裡點一下道具，就記錄一次掉落，記錯了可以 -1。</li>
+      </ul>
+
+      <h4>✨ 好用小功能</h4>
+      <ul>
+        <li><b>📺 子母畫面</b>：開一個永遠浮在最上層的小視窗，邊打怪邊看倒數；小視窗裡也能直接擊殺、待命、記錄戰利品。（電腦版 Chrome / Edge）</li>
+        <li><b>🔊 音效</b>：擊殺音效和提示音可以分開開關、各自調整音量，只影響自己。</li>
+        <li><b>不怕斷線</b>：重新整理或關掉網頁再回來，計時都還在，會自動回到原本的房間。</li>
+        <li><b>🔐 房間密碼</b>：點右上角的房間可以顯示 / 隱藏密碼，方便再分享給隊友。</li>
+      </ul>
+
+      <h4>👑 隊長專屬</h4>
+      <ul>
+        <li><b>📋 匯出 / 📥 匯入</b>：把目前所有計時匯出成一組密鑰，換房間或隔天再匯入；也可以匯出文字版時間表貼到 Discord / LINE。</li>
+        <li><b>線上名單</b>：點「🟢 線上 N 人」打開名單。🚫 禁止操作：對方不能按任何東西，也看不到計時器。🚪 移出：請對方離開房間（之後還能用同一個暱稱再進來）。</li>
+      </ul>
+
+      <h4>💡 小提醒</h4>
+      <ul>
+        <li>密碼不要用 123456、aaaaaa 這種好猜的，不然陌生人可能誤闖。</li>
+        <li>按鈕上的說明：滑鼠停在按鈕上，大多會顯示用途。</li>
+      </ul>
     </div>
   </div>
 </div>
