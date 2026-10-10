@@ -2393,3 +2393,12 @@ const DONATE_LINKS = [
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !overlay.classList.contains('hidden')) close(); });
 })();
+
+// ---------- 全站在線人數（只有數字，不顯示暱稱） ----------
+socket.on('site:online', (n) => {
+  const wrap = document.getElementById('siteOnline');
+  const cnt = document.getElementById('siteOnlineCount');
+  if (!wrap || !cnt || typeof n !== 'number') return;
+  cnt.textContent = n;
+  wrap.classList.remove('hidden');
+});

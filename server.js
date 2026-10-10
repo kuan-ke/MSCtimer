@@ -812,8 +812,33 @@ setInterval(() => {
   }
 }, 10 * 60 * 1000);
 
+// ---------- 全站在線人數（所有人都看得到，只有數字、不含暱稱） ----------
+// 同一個瀏覽器開多個分頁只算一人；隱身的管理者不計入
+function siteOnlineCount() {
+  const ids = new Set();
+  for (const [, s] of io.sockets.sockets) {
+    if (s.data.isAdmin) continue;
+    ids.add(s.data.clientId || s.id);
+  }
+  return ids.size;
+}
+let siteOnlineLast = -1;
+let siteOnlineTimer = null;
+function scheduleSiteOnline() {
+  if (siteOnlineTimer) return;
+  siteOnlineTimer = setTimeout(() => {
+    siteOnlineTimer = null;
+    const n = siteOnlineCount();
+    if (n === siteOnlineLast) return;
+    siteOnlineLast = n;
+    io.emit('site:online', n);
+  }, 1500);
+}
+
 io.on('connection', (socket) => {
   socket.emit('server:version', SITE_VERSION);
+  socket.emit('site:online', siteOnlineCount());
+  scheduleSiteOnline();
   // ---------- 進入房間（暱稱 + 房間密碼） ----------
   // 同一個密碼 = 同一個房間；密碼對應的房間不存在時會自動建立。
   socket.on('joinRoom', (payload) => {
@@ -881,6 +906,7 @@ io.on('connection', (socket) => {
     if (created) persist.markDirty(room);
 
     socket.emit('join:ack', { nickname: trimmedName, created, captain: isCaptain(room, socket) });
+    scheduleSiteOnline(); // 進房後才知道 clientId（同瀏覽器多分頁合併成一人）
     socket.data.viewing = null;
     applyView(room, socket, true);
     if (socket.data.isAdmin) socket.emit('admin:mutedList', Array.from(room.mutedNicknames.values()));
@@ -1059,6 +1085,7 @@ io.on('connection', (socket) => {
     if (ok && room) socket.emit('admin:mutedList', Array.from(room.mutedNicknames.values()));
     if (ok) sendAdminRooms(socket);
     if (room) broadcastUsers(room); // 驗證成功後立刻從其他人的線上名單消失
+    scheduleSiteOnline();
   });
 
   // 管理者強制修改「同房間、目前仍連線中」某個使用者的暱稱
@@ -1650,6 +1677,7 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     leaveCurrentRoom(socket);
+    scheduleSiteOnline();
   });
 });
 
