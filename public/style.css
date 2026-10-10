@@ -1073,3 +1073,16 @@ body.is-muted #pipBtn { display: none !important; }
 .site-online b { color: #e0f2fe; }
 .site-online.hidden { display: none; }
 @media (max-width: 1560px) and (min-width: 1321px) { .site-online .so-label { display: none; } }
+
+/* 贊助榜第一名：七彩外框（緩慢旋轉） */
+@property --rainbow-angle { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+.donate-row.top1 {
+  border: 3px solid transparent;
+  background:
+    linear-gradient(#2a2210, #2a2210) padding-box,
+    conic-gradient(from var(--rainbow-angle), #ff3b3b, #ff9f1c, #ffe14d, #3ddc84, #2ec5ff, #6c63ff, #d16bff, #ff3b3b) border-box;
+  box-shadow: 0 0 12px rgba(255, 225, 77, .25), 0 0 18px rgba(209, 107, 255, .2);
+  animation: rainbow-spin 4s linear infinite;
+}
+@keyframes rainbow-spin { to { --rainbow-angle: 360deg; } }
+@media (prefers-reduced-motion: reduce) { .donate-row.top1 { animation: none; } }
