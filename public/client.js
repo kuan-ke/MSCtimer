@@ -2214,9 +2214,9 @@ function playBeep(freq) {
 // ---------- 贊助 ----------
 // 收款連結：網址留空 = 還在審核中（按鈕會顯示「審核中」且不能點）
 const DONATE_LINKS = [
-  { name: 'PayPal', icon: '💳', url: 'https://www.paypal.com/ncp/payment/LWHNMPF397KA4' },
   { name: '歐付寶', icon: '🟢', url: '' },
-  { name: '綠界', icon: '🟩', url: '' }
+  { name: '綠界', icon: '🟩', url: '' },
+  { name: 'PayPal', label: 'PayPal（海外信用卡）', icon: '💳', url: 'https://www.paypal.com/ncp/payment/LWHNMPF397KA4' }
 ];
 (function setupDonate() {
   const overlay = document.getElementById('donateOverlay');
@@ -2244,7 +2244,7 @@ const DONATE_LINKS = [
     const a = document.createElement(l.url ? 'a' : 'span');
     a.className = 'donate-link' + (l.url ? '' : ' pending');
     if (l.url) { a.href = l.url; a.target = '_blank'; a.rel = 'noopener'; }
-    a.textContent = `${i + 1}. ${l.icon} ${l.name}`;
+    a.textContent = `${i + 1}. ${l.icon} ${l.label || l.name}`;
     const tag = document.createElement('small');
     tag.textContent = l.url ? '前往付款 ↗' : '審核中';
     a.appendChild(tag);
