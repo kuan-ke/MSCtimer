@@ -1413,24 +1413,13 @@ io.on('connection', (socket) => {
     reply({ ok: true });
   });
 
-  // 管理者：刪除整間房間（所有計時、紀錄、時間點、戰利品、隊長、禁止名單都清掉；在裡面的人會回到輸入密碼畫面）
-  socket.on('adminDeleteRoom', ({ password } = {}, cb) => {
-    const reply = typeof cb === 'function' ? cb : () => {};
-    if (!socket.data.isAdmin) return reply({ error: '沒有權限' });
-    if (typeof password !== 'string') return reply({ error: '找不到這間房間' });
-    const id = roomIdFromPassword(password);
-    const room = rooms.get(id);
-    if (!room) return reply({ error: '找不到這間房間' });
-    for (const [, s] of io.sockets.sockets) {
-      if (s.data.roomId !== room.id) continue;
-      s.emit('roomDeleted');
-      leaveCurrentRoom(s);
-    }
-    rooms.delete(id);
-    persist.removeRoom(id);
-    scheduleAdminRooms();
-    scheduleSiteOnline();
-    reply({ ok: true });
+  // 進站時確認「上次的房間」還在不在（只回傳是否存在與在線人數，不回傳任何房間內容）
+  socket.on('roomCheck', ({ password } = {}, cb) => {
+    if (typeof cb !== 'function') return;
+    const pw = typeof password === 'string' ? password.trim() : '';
+    if (!PASSWORD_RE.test(pw)) return cb({ exists: false });
+    const room = rooms.get(roomIdFromPassword(pw));
+    cb(room ? { exists: true, users: visibleUserCount(room) } : { exists: false });
   });
 
   // 管理者：全站所有線上使用者（同一瀏覽器同暱稱的多個分頁只算一人；不含隱身的管理者）

@@ -1218,3 +1218,8 @@ body.is-muted #pipBtn { display: none !important; }
   .status-row .status-who { min-width: 0; flex-shrink: 2; }
   .status-row .status-spawn { display: none; } /* 手機寬度不夠：出生時間不顯示，保留王名、CH、暱稱、倒數 */
 }
+
+/* 進站選房間：上次的房間狀態 */
+.last-room-hint { margin: 4px 0 8px; padding: 8px 10px; border-radius: 8px; font-size: 13px; line-height: 1.5; background: #172033; border: 1px solid #334155; color: #cbd5e1; }
+.last-room-hint.ok { background: #052e16; border-color: #22c55e; color: #bbf7d0; }
+.last-room-hint.gone { background: #3a2408; border-color: #f59e0b; color: #fde68a; }

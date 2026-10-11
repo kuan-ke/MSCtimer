@@ -133,7 +133,11 @@ function initNickname() {
   if (savedName && savedPw) myNickname = nicknameForRoom(savedPw);
 
   if (savedName && savedPw) {
-    hideNicknameOverlay(); // 連線後會自動進入原本的房間（見 socket 'connect'）
+    // 進站先選房間：暱稱鎖定不能改，密碼先帶入上次的房間；連線後會確認那間房間還在不在（見 checkLastRoom）
+    let auto = false;
+    try { auto = sessionStorage.getItem('msctimer_autorejoin') === '1'; } catch (e) { /* ignore */ }
+    if (auto) hideNicknameOverlay(); // 網站更新後的重新整理：直接回到原本的房間
+    else { showNicknameOverlay(); setLastRoomHint('🔎 正在確認上次的房間…', ''); }
   } else {
     showNicknameOverlay(needRenameNotice ? '暱稱規則更新：請重新取一次暱稱（之後就無法更改）' : undefined);
   }
@@ -167,8 +171,26 @@ function showNicknameOverlay(errorMsg, opts = {}) {
     else nicknameInput.focus();
   }, 50);
 }
+// 進站選房間：顯示「上次的房間」狀態
+function setLastRoomHint(text, cls) {
+  const el = document.getElementById('lastRoomHint');
+  if (!el) return;
+  el.textContent = text || '';
+  el.className = 'last-room-hint' + (cls ? ' ' + cls : '') + (text ? '' : ' hidden');
+}
+function checkLastRoom(pw) {
+  socket.emit('roomCheck', { password: pw }, (r) => {
+    if (joined || nicknameOverlay.classList.contains('hidden')) return;
+    if (r && r.exists) {
+      setLastRoomHint(`✅ 上次的房間還在（目前 ${r.users} 人在線），按「進入房間」繼續；也可以輸入其他房間密碼。`, 'ok');
+    } else {
+      setLastRoomHint('⚠️ 上次的房間已經不存在了。輸入同一組密碼會建立新房間，也可以換一組密碼。', 'gone');
+    }
+  });
+}
 function hideNicknameOverlay() {
   nicknameOverlay.classList.add('hidden');
+  setLastRoomHint('');
 }
 
 function submitNickname() {
@@ -209,6 +231,8 @@ roomPasswordInput.addEventListener('keydown', (e) => {
 });
 // 輸入時自動濾掉英數字以外的字元（含空白、中文、符號），最多 6 碼
 roomPasswordInput.addEventListener('input', () => {
+  // 改成別的密碼時，「上次的房間」提示就不適用了
+  if (roomPasswordInput.value.trim() !== (storageGet(ROOM_KEY) || '')) setLastRoomHint('');
   const cleaned = roomPasswordInput.value.replace(/[^A-Za-z0-9]/g, '').slice(0, 6);
   if (cleaned !== roomPasswordInput.value) roomPasswordInput.value = cleaned;
 });
@@ -342,17 +366,6 @@ socket.on('kicked', ({ by } = {}) => {
   updateNicknameDisplay();
   updateRoomDisplay();
   showNicknameOverlay(`您已被${by || '隊長'}移出此房間，可以重新進入，或輸入其他房間密碼`, { keepPassword: true });
-});
-
-// 房間被管理者刪除：回到輸入密碼畫面（不要自動重新進入同一組密碼，避免又建立一間新房間）
-socket.on('roomDeleted', () => {
-  amCaptain = false;
-  joined = false;
-  myRoomPassword = null;
-  storageRemove(ROOM_KEY);
-  updateNicknameDisplay();
-  updateRoomDisplay();
-  showNicknameOverlay('這個房間已被管理者刪除，請輸入其他房間密碼');
 });
 
 socket.on('error:needNickname', () => {
@@ -677,7 +690,10 @@ function showUpdateBanner() {
   bar.textContent = '🔄 網站已更新，請重新整理以套用新版本 ';
   const btn = document.createElement('button');
   btn.textContent = '立即重新整理';
-  btn.addEventListener('click', () => window.location.reload());
+  btn.addEventListener('click', () => {
+    try { if (joined) sessionStorage.setItem('msctimer_autorejoin', '1'); } catch (e) { /* ignore */ }
+    window.location.reload();
+  });
   bar.appendChild(btn);
   document.body.appendChild(bar);
 }
@@ -686,9 +702,13 @@ function showUpdateBanner() {
 socket.on('connect', () => {
   connStatusEl.textContent = '已連線';
   connStatusEl.className = 'conn-status ok';
-  // 已經有暱稱與房間密碼：自動進入（或斷線後重新進入）原本的房間
-  if (myNickname && myRoomPassword && (joined || storageGet(ROOM_KEY))) {
+  // 斷線後重新連上：自動回到原本的房間；網站更新後的重新整理也直接回去
+  let auto = false;
+  try { auto = sessionStorage.getItem('msctimer_autorejoin') === '1'; sessionStorage.removeItem('msctimer_autorejoin'); } catch (e) { /* ignore */ }
+  if (myNickname && myRoomPassword && (joined || (auto && storageGet(ROOM_KEY)))) {
     socket.emit('joinRoom', { nickname: myNickname, password: myRoomPassword, clientId: myClientId });
+  } else if (!joined && myRoomPassword && !nicknameOverlay.classList.contains('hidden')) {
+    checkLastRoom(myRoomPassword);
   }
 });
 socket.on('disconnect', () => {
