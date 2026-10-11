@@ -1,6 +1,8 @@
 const socket = io();
 
 const CHANNEL_COUNT = 60;
+// 觸控裝置（手機 / 平板）：長按代替右鍵
+const IS_TOUCH = (() => { try { return window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window; } catch (e) { return false; } })();
 // 瀏覽器保存資料的名稱（舊版是 ch_timer_*，第一次載入新版時會自動搬過來）
 (function migrateStorageKeys() {
   try {
@@ -1142,7 +1144,7 @@ function renderRangePanel() {
   maxInput.value = tab.maxMinutes;
   minInput.disabled = !!tab.locked;
   maxInput.disabled = !!tab.locked;
-  rangeHintEl.textContent = '右鍵輸入死亡時間 或 中鍵輸入重生時間';
+  rangeHintEl.textContent = IS_TOUCH ? '點 CH 開始倒數，長按 CH 輸入死亡時間 / 重生時間' : '右鍵輸入死亡時間 或 中鍵輸入重生時間';
 }
 
 function submitRangeChange() {
@@ -1199,7 +1201,30 @@ function renderGridInto(target, tab, compact) {
     whoEl.className = 'ch-who';
     btn.appendChild(whoEl);
 
+    // 手機：長按 CH ＝ 右鍵（輸入死亡時間；視窗裡也可以改輸入重生時間）
+    let lpTimer = null;
+    let lpFired = false;
+    let lastTouch = 0;
+    btn.addEventListener('touchstart', () => {
+      lastTouch = Date.now();
+      lpFired = false;
+      clearTimeout(lpTimer);
+      lpTimer = setTimeout(() => {
+        lpFired = true;
+        if (navigator.vibrate) { try { navigator.vibrate(15); } catch (e) { /* ignore */ } }
+        if (ensureNickname()) openModal(tab, i);
+      }, 550);
+    }, { passive: true });
+    const cancelLp = () => clearTimeout(lpTimer);
+    btn.addEventListener('touchmove', cancelLp, { passive: true });
+    btn.addEventListener('touchcancel', cancelLp);
+    btn.addEventListener('touchend', (e) => {
+      clearTimeout(lpTimer);
+      if (lpFired) e.preventDefault(); // 長按後不要再觸發一次點擊
+    });
+
     btn.addEventListener('click', () => {
+      if (lpFired) { lpFired = false; return; }
       if (!ensureNickname()) return;
       socket.emit('channelClick', { tabId: tab.id, channelIndex: i });
     });
@@ -1217,6 +1242,7 @@ function renderGridInto(target, tab, compact) {
 
     btn.addEventListener('contextmenu', (e) => {
       e.preventDefault();
+      if (Date.now() - lastTouch < 1500) return; // 手機長按由上面的長按處理，避免開兩次
       if (!ensureNickname()) return;
       openModal(tab, i);
     });
