@@ -89,6 +89,7 @@
           </div>
           <div id="killCount" class="kill-count" title="這隻王在這間房間被按「擊殺」的次數">擊殺：0 次</div>
           <div class="boss-loot-row">
+            <span class="loot-hint" id="lootHint">為收集機率資訊，還請各位玩家踴躍新增獲得的戰利品！</span>
             <button type="button" id="dropsBtn" class="drops-btn hidden" title="查看這隻王的戰利品（遊戲資料，不含機率）">📦 戰利品</button>
           </div>
         </div>
@@ -170,8 +171,14 @@
       <button type="button" id="donateCloseBtn" class="btn-secondary">關閉</button>
     </div>
     <div class="guide-body">
+      <div class="donate-board-head donate-board-top">
+        <h4>🏆 贊助榜</h4>
+        <select id="donateMonthSel" title="選擇月份"></select>
+      </div>
+      <p class="donate-sub">每個月重新計算，同一個暱稱當月的贊助金額會加總，金額最高的排在最上面。</p>
+      <div id="donateBoard" class="donate-board"></div>
       <p class="donate-msg">每個月都要花很多 token 跟伺服器維護費用……<br />如果大大們有打到好寶物，或是有餘力的話，也可以請作者喝杯奶茶，感激不盡 &gt;&lt;</p>
-      <p class="donate-mail">📧 作者信箱：<a href="mailto:ckke589@gmail.com">ckke589@gmail.com</a>　歡迎來信</p>
+      <p class="donate-mail">📧 作者信箱：ckke589@gmail.com</p>
       <h4 class="donate-step">① 想上贊助榜？先填寫（也可以匿名）</h4>
       <div class="donate-form">
         <label>暱稱<input type="text" id="donName" maxlength="20" placeholder="要顯示在贊助榜上的名字" autocomplete="off" /></label>
@@ -185,12 +192,6 @@
       <div id="donateResult" class="donate-result hidden"></div>
       <p class="donate-note">💡 按付款方式後會另開付款頁面，並給你一組<b>贊助代碼</b>。付款金額請和上面填的一樣（有備註欄的話也可以填上代碼）。<b>PayPal 付款完成後會自動登上贊助榜</b>；其他管道由作者確認後登錄。只想默默支持的話，也可以不填直接付款 ❤️</p>
 
-      <div class="donate-board-head">
-        <h4>🏆 贊助榜</h4>
-        <select id="donateMonthSel" title="選擇月份"></select>
-      </div>
-      <p class="donate-sub">每個月重新計算，同一個暱稱當月的贊助金額會加總，金額最高的排在最上面。</p>
-      <div id="donateBoard" class="donate-board"></div>
     </div>
   </div>
 </div>
@@ -234,7 +235,7 @@
       <h4>🎁 王的資料與戰利品</h4>
       <ul>
         <li>王的名字下方有等級、血量、經驗值、出沒地點。</li>
-        <li>點「戰利品」可以看這隻王會掉什麼（附圖示）；在清單裡點一下道具，就記錄一次掉落，記錯了可以 -1。</li>
+        <li>點「戰利品」可以看這隻王會掉什麼（附圖示）；每個道具右邊有「－ 數字 ＋」，按 ＋ 記錄一次掉落，記錯了按 － 減回來。</li>
       </ul>
 
       <h4>✨ 好用小功能</h4>
@@ -275,7 +276,7 @@
       <input type="search" id="dropsSearch" placeholder="搜尋道具名稱…" />
     </div>
     <div class="drops-list" id="dropsList"></div>
-    <div class="drops-note">點道具即可記錄一次掉落，記錄會顯示在「出現中」旁的「📦 戰利品」。不含掉落機率。</div>
+    <div class="drops-note">按 ＋ 記錄一次掉落、按 － 減少一次（記錯時用），記錄會顯示在「出現中」旁的「📦 戰利品」。不含掉落機率。</div>
   </div>
 </div>
 

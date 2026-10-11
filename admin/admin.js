@@ -110,6 +110,8 @@
     rawOn('adminAuth:result', (ok) => {
       if (ok) {
         A.isAdmin = true;
+        window.__mscAdmin = true; // 時間點紀錄顯示五分 / 四分區間統計（一般使用者看不到）
+        if (typeof renderKillPoints === 'function') renderKillPoints();
         renderAll();
       } else if (!A.rejected) {
         A.rejected = true;
@@ -358,6 +360,16 @@
         go.addEventListener('click', () => joinOtherRoom(r.password));
         row.appendChild(go);
       }
+      const del = el('button', 'danger', '刪除');
+      del.title = '刪除這間房間（所有計時、操作紀錄、時間點、戰利品紀錄都會清掉，房間裡的人會回到輸入密碼畫面）';
+      del.addEventListener('click', () => {
+        const who = r.users.length ? `\n目前在線：${r.users.join('、')}（會被請出房間）` : '';
+        if (!confirm(`確定要刪除房間「${r.password}」嗎？\n所有計時、操作紀錄、時間點、戰利品紀錄都會清掉，無法復原。${who}`)) return;
+        A.socket.emit('adminDeleteRoom', { password: r.password }, (res) => {
+          if (res && res.error) showToast(res.error); else showToast(`已刪除房間 ${r.password}`);
+        });
+      });
+      row.appendChild(del);
       roomListEl.appendChild(row);
     });
   }

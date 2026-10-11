@@ -1090,3 +1090,41 @@ body.is-muted #pipBtn { display: none !important; }
 .donate-mail { margin: -4px 0 10px; font-size: 14px; color: #cbd5e1; }
 .donate-mail a { color: #93c5fd; font-weight: 700; text-decoration: none; }
 .donate-mail a:hover { text-decoration: underline; }
+.donate-board-head.donate-board-top { margin-top: 12px; }
+.donate-board + .donate-msg { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+
+/* 戰利品按鈕左邊的淺字提示 */
+.loot-hint { font-size: 12px; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+
+/* 子母畫面：CH 按鈕改扁一點，騰出高度給「進行中頻道」；進行中頻道字體加大 */
+.pip-root .ch-btn { aspect-ratio: 1.45 / 1; border-radius: 4px; }
+.pip-root .grid { gap: 2px; }
+.pip-root .ch-label { font-size: 13px; }
+.pip-root .status-row { font-size: 12.5px; padding: 4px 5px; gap: 5px; }
+.pip-root .status-row .status-thumb { width: 20px; height: 20px; }
+.pip-root .active-panel .panel-title { font-size: 14px; }
+.pip-root .active-panel .sub-panel-title { font-size: 13px; }
+.pip-root .kill-btn { font-size: 12px; }
+.pip-root .status-row { flex-wrap: nowrap; }
+.pip-root .status-row > * { flex-shrink: 0; }
+.pip-root .status-row .status-tag { flex-shrink: 0; }
+.pip-root .status-row .status-who { min-width: 0; flex-shrink: 2; }
+.pip-root .status-row .status-spawn { min-width: 0; flex-shrink: 50; overflow: hidden; text-overflow: clip; }
+
+/* CH 按鈕：陰影（立體感，不加白框） */
+.ch-btn {
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+.ch-btn:hover { box-shadow: 0 5px 10px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.25); }
+.pip-root .ch-btn { box-shadow: 0 2px 3px rgba(0, 0, 0, 0.55); }
+
+/* 戰利品目錄：「－ 數字 ＋」 */
+.drop-rec.drop-stepper { display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px; border-style: solid; border-color: #334155; background: #0f172a; font-size: 13px; }
+.drop-rec.drop-stepper.has { border-color: #f59e0b; background: #422006; }
+.drop-step { width: 26px; height: 26px; border-radius: 999px; border: 1px solid #475569; background: #1e293b; color: #e2e8f0; font-size: 15px; font-weight: 800; line-height: 1; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+.drop-step.plus { border-color: #f59e0b; color: #fde68a; }
+.drop-step.plus:hover { background: #78350f; }
+.drop-step.minus:hover:not(:disabled) { background: #7f1d1d; border-color: #f87171; color: #fecaca; }
+.drop-step:disabled { opacity: .35; cursor: default; }
+.drop-num { min-width: 22px; text-align: center; font-weight: 800; color: #fde68a; font-variant-numeric: tabular-nums; }
+.drop-rec.drop-stepper:not(.has) .drop-num { color: #64748b; }

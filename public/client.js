@@ -342,6 +342,17 @@ socket.on('kicked', ({ by } = {}) => {
   showNicknameOverlay(`您已被${by || '隊長'}移出此房間，可以重新進入，或輸入其他房間密碼`, { keepPassword: true });
 });
 
+// 房間被管理者刪除：回到輸入密碼畫面（不要自動重新進入同一組密碼，避免又建立一間新房間）
+socket.on('roomDeleted', () => {
+  amCaptain = false;
+  joined = false;
+  myRoomPassword = null;
+  storageRemove(ROOM_KEY);
+  updateNicknameDisplay();
+  updateRoomDisplay();
+  showNicknameOverlay('這個房間已被管理者刪除，請輸入其他房間密碼');
+});
+
 socket.on('error:needNickname', () => {
   showNicknameOverlay();
 });
@@ -947,6 +958,8 @@ function renderBossBanner() {
   const dropsBtn = document.getElementById('dropsBtn');
   const hasDrops = !!(tab.image && DROP_BOSSES && DROP_BOSSES.has(tab.image));
   if (dropsBtn) dropsBtn.classList.toggle('hidden', !hasDrops);
+  const lootHintEl = document.getElementById('lootHint'); // 沒有戰利品清單的自訂分頁就不顯示提示
+  if (lootHintEl) lootHintEl.classList.toggle('hidden', !hasDrops);
   renderBossStats(hasDrops ? tab.image : null);
 }
 
@@ -1068,19 +1081,38 @@ function renderDrops() {
     }
     const image = getCurrentTab() && getCurrentTab().image;
     const n = image ? lootCountOf(image, x.id) : 0;
+    // 「－ 數字 ＋」：＋ 記錄一次掉落、－ 記錯時減一次（整間房間同步，會寫進操作紀錄）
     const rec = document.createElement('div');
-    rec.className = 'drop-rec' + (n ? ' has' : '');
-    rec.textContent = n ? `已記錄 ${n}` : '＋記錄';
-    row.title = `道具編號 ${x.id}｜點一下記錄一次掉落`;
-    row.classList.add('clickable');
-    row.addEventListener('click', () => {
-      if (!ensureNickname()) return;
-      if (!image) return;
+    rec.className = 'drop-rec drop-stepper' + (n ? ' has' : '');
+    const minus = document.createElement('button');
+    minus.type = 'button';
+    minus.className = 'drop-step minus';
+    minus.textContent = '－';
+    minus.title = '記錯了，減少一次';
+    minus.disabled = !n;
+    const num = document.createElement('span');
+    num.className = 'drop-num';
+    num.textContent = String(n);
+    const plus = document.createElement('button');
+    plus.type = 'button';
+    plus.className = 'drop-step plus';
+    plus.textContent = '＋';
+    plus.title = '記錄一次掉落';
+    plus.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!ensureNickname() || !image) return;
       socket.emit('lootRecord', { image, itemId: x.id }, (res) => {
         if (res && res.ok) showToast(`已記錄：${x.name}（本房間第 ${res.count} 個）`);
         else showToast((res && res.error) || '記錄失敗');
       });
     });
+    minus.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!ensureNickname() || !image || !lootCountOf(image, x.id)) return;
+      socket.emit('lootUndo', { image, itemId: x.id });
+    });
+    rec.append(minus, num, plus);
+    row.title = `道具編號 ${x.id}｜按 ＋ 記錄一次掉落，按 － 減少一次`;
     row.appendChild(ic);
     row.appendChild(body);
     row.appendChild(rec);
@@ -1775,7 +1807,8 @@ function renderKillPointsInto(d) {
   head.appendChild(clearBtn);
   pop.appendChild(head);
 
-  // 統計：五分區間 / 四分區間各幾筆（重疊的兩邊都算）
+  // 統計：五分區間 / 四分區間各幾筆（重疊的兩邊都算）—— 只有管理者看得到
+  if (window.__mscAdmin) {
   const cnt = { five: 0, four: 0, none: 0, early: 0 };
   killPoints.forEach((k) => {
     const c = classifyKillPoint(k.ms);
@@ -1801,6 +1834,7 @@ function renderKillPointsInto(d) {
     sum.appendChild(o);
   }
   pop.appendChild(sum);
+  }
 
   const list = d.createElement('div');
   list.className = 'killpoint-list';
@@ -2385,6 +2419,7 @@ const DONATE_LINKS = [
         : '如果想登上贊助榜，可以把暱稱和付款時間告訴作者，確認後會幫你補登。';
       resEl.append(t, d);
       resEl.classList.remove('hidden');
+      setTimeout(() => resEl.scrollIntoView({ block: 'center' }), 100);
       if (last) {
         socket.emit('donateReturned', { code: last.code });
         storageRemove('msctimer_donate_last');
