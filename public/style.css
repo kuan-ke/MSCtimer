@@ -1086,3 +1086,7 @@ body.is-muted #pipBtn { display: none !important; }
 }
 @keyframes rainbow-spin { to { --rainbow-angle: 360deg; } }
 @media (prefers-reduced-motion: reduce) { .donate-row.top1 { animation: none; } }
+
+.donate-mail { margin: -4px 0 10px; font-size: 14px; color: #cbd5e1; }
+.donate-mail a { color: #93c5fd; font-weight: 700; text-decoration: none; }
+.donate-mail a:hover { text-decoration: underline; }
