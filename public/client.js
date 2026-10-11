@@ -518,6 +518,7 @@ function exportTimerKey() {
   }
 }
 
+const SITE_URL = 'https://msctimer.onrender.com/'; // 匯出時間表最下面附上的網站網址
 // 文字版時間表（一開始的版本）：依王分組，每隻王底下依「出現中 → 重生區間 → 倒數中」排序
 const EXPORT_STATE_LABEL = { appearing: '出現中', window: '重生區間', counting: '倒數中' };
 const EXPORT_STATE_ORDER = { appearing: 0, window: 1, counting: 2 };
@@ -528,7 +529,7 @@ function buildTimerTable() {
   const p2 = (n) => String(n).padStart(2, '0');
   const stamp = `${d.getFullYear()}/${p2(d.getMonth() + 1)}/${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
   const fileStamp = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}`;
-  const lines = [`【MSCtimer｜楓之谷經典版｜團隊野王計時器】房間 ${myRoomPassword || ''} 時間表`, `匯出時間：${stamp}`, ''];
+  const lines = ['【MSCtimer｜楓之谷經典版｜團隊野王計時器】時間表', `匯出時間：${stamp}`, '']; // 不寫房間密碼，貼到公開頻道也安全
   let total = 0;
   (tabs || []).forEach((tab) => {
     const items = [];
@@ -553,6 +554,7 @@ function buildTimerTable() {
     total += items.length;
   });
   lines.push(total === 0 ? '目前沒有進行中的 CH' : `共 ${total} 個進行中的 CH`);
+  lines.push('', `🔗 MSCtimer｜楓之谷經典版｜團隊野王計時器 ${SITE_URL}`);
   return { text: lines.join('\n') + '\n', total, fileStamp };
 }
 
