@@ -2486,3 +2486,18 @@ socket.on('site:online', (n) => {
   wrap.classList.remove('hidden');
 });
 
+
+// ---------- 聯絡作者（右上角與進入房間視窗左下角的 ✉️） ----------
+(function setupContact() {
+  const overlay = document.getElementById('contactOverlay');
+  if (!overlay) return;
+  const open = () => overlay.classList.remove('hidden');
+  const close = () => overlay.classList.add('hidden');
+  ['contactBtn', 'joinContactBtn'].forEach((id) => {
+    const b = document.getElementById(id);
+    if (b) b.addEventListener('click', open);
+  });
+  document.getElementById('contactCloseBtn').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !overlay.classList.contains('hidden')) close(); });
+})();

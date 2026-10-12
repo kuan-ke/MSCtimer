@@ -57,6 +57,7 @@
       <div id="connStatus" class="conn-status">連線中...</div>
       <button id="donateBtn" class="top-btn donate-btn" title="贊助作者、查看本月贊助榜">💖 贊助</button>
       <button id="guideBtn" class="top-btn guide-btn" title="使用指南：這個網站可以做什麼、怎麼用">📖 指南</button>
+      <button id="contactBtn" class="top-btn contact-top-btn" title="聯絡作者" aria-label="聯絡作者">✉️</button>
     </div>
   </header>
 
@@ -158,7 +159,8 @@
 
     <div id="lastRoomHint" class="last-room-hint hidden"></div>
     <div id="nicknameError" class="nickname-error hidden"></div>
-    <div class="modal-buttons">
+    <div class="modal-buttons join-buttons">
+      <button type="button" id="joinContactBtn" class="contact-btn" title="聯絡作者" aria-label="聯絡作者">✉️</button>
       <button id="nicknameSubmitBtn" class="btn-primary">進入房間</button>
     </div>
   </div>
@@ -179,7 +181,6 @@
       <p class="donate-sub">每個月重新計算，同一個暱稱當月的贊助金額會加總，金額最高的排在最上面。</p>
       <div id="donateBoard" class="donate-board"></div>
       <p class="donate-msg">每個月都要花很多 token 跟伺服器維護費用……<br />如果大大們有打到好寶物，或是有餘力的話，也可以請作者喝杯奶茶，感激不盡 &gt;&lt;</p>
-      <p class="donate-mail">📧 作者信箱：ckke589@gmail.com</p>
       <h4 class="donate-step">① 想上贊助榜？先填寫（也可以匿名）</h4>
       <div class="donate-form">
         <label>暱稱<input type="text" id="donName" maxlength="20" placeholder="要顯示在贊助榜上的名字" autocomplete="off" /></label>
@@ -194,6 +195,17 @@
       <p class="donate-note">💡 按付款方式後會另開付款頁面，並給你一組<b>贊助代碼</b>。付款金額請和上面填的一樣（有備註欄的話也可以填上代碼）。<b>PayPal 付款完成後會自動登上贊助榜</b>；其他管道由作者確認後登錄。只想默默支持的話，也可以不填直接付款 ❤️</p>
 
     </div>
+  </div>
+</div>
+
+<!-- 聯絡作者 -->
+<div id="contactOverlay" class="modal-overlay hidden">
+  <div class="modal contact-modal" role="dialog" aria-labelledby="contactTitle">
+    <div class="contact-head">
+      <h3 id="contactTitle">✉️ 聯絡作者</h3>
+      <button type="button" id="contactCloseBtn" class="contact-close" aria-label="關閉">✕</button>
+    </div>
+    <p class="contact-text">作者信箱：ckke589@gmail.com<br />有任何問題或建議歡迎來信</p>
   </div>
 </div>
 
@@ -260,10 +272,6 @@
         <li>按鈕上的說明：滑鼠停在按鈕上，大多會顯示用途。</li>
       </ul>
 
-      <h4>ℹ️ 關於此網站</h4>
-      <ol>
-        <li>作者信箱：ckke589@gmail.com</li>
-      </ol>
     </div>
   </div>
 </div>

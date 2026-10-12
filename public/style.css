@@ -1223,3 +1223,19 @@ body.is-muted #pipBtn { display: none !important; }
 .last-room-hint { margin: 4px 0 8px; padding: 8px 10px; border-radius: 8px; font-size: 13px; line-height: 1.5; background: #172033; border: 1px solid #334155; color: #cbd5e1; }
 .last-room-hint.ok { background: #052e16; border-color: #22c55e; color: #bbf7d0; }
 .last-room-hint.gone { background: #3a2408; border-color: #f59e0b; color: #fde68a; }
+
+/* 進入房間視窗：左下角作者資訊 */
+.join-buttons { justify-content: space-between; align-items: flex-end; flex-wrap: nowrap; }
+
+/* 聯絡作者 */
+#contactOverlay { z-index: 130; }
+.contact-modal { width: min(340px, calc(100vw - 32px)); }
+.contact-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.contact-head h3 { margin: 0; }
+.contact-close { border: none; background: transparent; color: var(--text-dim); font-size: 16px; cursor: pointer; padding: 2px 6px; }
+.contact-close:hover { color: var(--text); }
+.contact-text { margin: 0; font-size: 14.5px; line-height: 1.8; color: #e2e8f0; }
+.contact-btn { border: 1px solid var(--border); background: var(--card-bg-2); border-radius: 8px; font-size: 16px; line-height: 1; padding: 7px 9px; cursor: pointer; }
+.contact-btn:hover { border-color: #60a5fa; }
+.contact-top-btn { padding-left: 9px !important; padding-right: 9px !important; }
+@media (max-width: 760px) { #contactBtn { order: 14; flex: 0 0 auto; } }
