@@ -700,6 +700,7 @@ function showUpdateBanner() {
 
 // ---------- Socket connection status ----------
 socket.on('connect', () => {
+  socket.emit('hello', { clientId: myClientId }); // 讓伺服器把同一個瀏覽器的多個分頁算成一人（全站在線人數）
   connStatusEl.textContent = '已連線';
   connStatusEl.className = 'conn-status ok';
   // 斷線後重新連上：自動回到原本的房間；網站更新後的重新整理也直接回去
@@ -884,13 +885,21 @@ function makeBossIcon(doc, image, name) {
   img.className = 'status-thumb';
   img.alt = '';
   img.title = name || '';
-  img.addEventListener('error', () => { if (img.parentNode) img.replaceWith(badge()); });
-  img.src = imageUrl(image);
+  img.addEventListener('error', () => {
+    if (img.dataset.fb !== '1') { img.dataset.fb = '1'; img.src = imageUrl(image); return; }
+    if (img.parentNode) img.replaceWith(badge());
+  });
+  img.src = thumbUrl(image);
   return img;
 }
 
 function imageUrl(file) {
   return new URL(`images/${file}`, window.location.href).href;
+}
+
+// 小縮圖（分頁、進行中頻道列）用王的臉部特寫；沒有特寫圖時退回原本的大圖
+function thumbUrl(file) {
+  return new URL(`images/thumbs/${file}`, window.location.href).href;
 }
 
 function renderTabsInto(target, compact) {
@@ -907,7 +916,9 @@ function renderTabsInto(target, compact) {
 
     if (tab.image) {
       const img = target.ownerDocument.createElement('img');
-      img.src = imageUrl(tab.image);
+      const full = imageUrl(tab.image);
+      img.addEventListener('error', () => { if (img.src !== full) img.src = full; });
+      img.src = thumbUrl(tab.image);
       img.className = 'tab-thumb';
       img.alt = tab.name;
       el.appendChild(img);
@@ -1055,6 +1066,7 @@ function renderDrops() {
     fEl.appendChild(b);
   });
   const list = document.getElementById('dropsList');
+  const keepScroll = list.scrollTop;
   list.innerHTML = '';
   const shown = boss.drops.filter((x) => (dropsFilter === '全部' || x.kind === dropsFilter) && (!q || x.name.toLowerCase().includes(q)));
   document.getElementById('dropsCount').textContent = `戰利品 ${boss.drops.length} 項`;
@@ -1103,43 +1115,14 @@ function renderDrops() {
     }
     const image = getCurrentTab() && getCurrentTab().image;
     const n = image ? lootCountOf(image, x.id) : 0;
-    // 「－ 數字 ＋」：＋ 記錄一次掉落、－ 記錯時減一次（整間房間同步，會寫進操作紀錄）
-    const rec = document.createElement('div');
-    rec.className = 'drop-rec drop-stepper' + (n ? ' has' : '');
-    const minus = document.createElement('button');
-    minus.type = 'button';
-    minus.className = 'drop-step minus';
-    minus.textContent = '－';
-    minus.title = '記錯了，減少一次';
-    minus.disabled = !n;
-    const num = document.createElement('span');
-    num.className = 'drop-num';
-    num.textContent = String(n);
-    const plus = document.createElement('button');
-    plus.type = 'button';
-    plus.className = 'drop-step plus';
-    plus.textContent = '＋';
-    plus.title = '記錄一次掉落';
-    plus.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (!ensureNickname() || !image) return;
-      socket.emit('lootRecord', { image, itemId: x.id }, (res) => {
-        if (res && res.ok) showToast(`已記錄：${x.name}（本房間第 ${res.count} 個）`);
-        else showToast((res && res.error) || '記錄失敗');
-      });
-    });
-    minus.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (!ensureNickname() || !image || !lootCountOf(image, x.id)) return;
-      socket.emit('lootUndo', { image, itemId: x.id });
-    });
-    rec.append(minus, num, plus);
+    const rec = buildLootStepper(document, image, x);
     row.title = `道具編號 ${x.id}｜按 ＋ 記錄一次掉落，按 － 減少一次`;
     row.appendChild(ic);
     row.appendChild(body);
     row.appendChild(rec);
     list.appendChild(row);
   });
+  list.scrollTop = keepScroll;
 }
 (function bindDrops() {
   const btn = document.getElementById('dropsBtn');
@@ -2080,6 +2063,42 @@ bindLoot(document);
 })();
 
 // 子母畫面用的「新增戰利品」挑選視窗（在該視窗內開啟；點道具記錄一次）
+// 「－ 數字 ＋」戰利品記錄按鈕（主畫面戰利品目錄、子母畫面「＋戰利品」共用）
+function buildLootStepper(d, image, item) {
+  const n = image ? lootCountOf(image, item.id) : 0;
+  const rec = d.createElement('div');
+  rec.className = 'drop-rec drop-stepper' + (n ? ' has' : '');
+  const minus = d.createElement('button');
+  minus.type = 'button';
+  minus.className = 'drop-step minus';
+  minus.textContent = '－';
+  minus.title = '記錯了，減少一次';
+  minus.disabled = !n;
+  const num = d.createElement('span');
+  num.className = 'drop-num';
+  num.textContent = String(n);
+  const plus = d.createElement('button');
+  plus.type = 'button';
+  plus.className = 'drop-step plus';
+  plus.textContent = '＋';
+  plus.title = '記錄一次掉落';
+  plus.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!ensureNickname() || !image) return;
+    socket.emit('lootRecord', { image, itemId: item.id }, (res) => {
+      if (res && res.ok) showToast(`已記錄：${item.name}（本房間第 ${res.count} 個）`);
+      else showToast((res && res.error) || '記錄失敗');
+    });
+  });
+  minus.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!ensureNickname() || !image || !lootCountOf(image, item.id)) return;
+    socket.emit('lootUndo', { image, itemId: item.id });
+  });
+  rec.append(minus, num, plus);
+  return rec;
+}
+
 function openLootPicker(d) {
   const tab = getCurrentTab();
   if (!tab || !tab.image || !DROP_BOSSES.has(tab.image)) { showToast('這隻王沒有戰利品資料'); return; }
@@ -2115,20 +2134,12 @@ function openLootPicker(d) {
         const ic = d.createElement('span'); ic.className = 'loot-icon';
         if (x.icon) { const im = d.createElement('img'); im.src = `drops/icons/${x.id}.png`; im.alt = ''; ic.appendChild(im); }
         const nm = d.createElement('span'); nm.className = 'loot-name'; nm.textContent = x.name;
-        const n = lootCountOf(tab.image, x.id);
-        const c = d.createElement('span'); c.className = 'drop-rec' + (n ? ' has' : ''); c.textContent = n ? `已記錄 ${n}` : '＋記錄';
-        row.appendChild(ic); row.appendChild(nm); row.appendChild(c);
-        row.addEventListener('click', () => {
-          if (!ensureNickname()) return;
-          socket.emit('lootRecord', { image: tab.image, itemId: x.id }, (res) => {
-            if (res && res.ok) showToast(`已記錄：${x.name}（本房間第 ${res.count} 個）`);
-            else showToast((res && res.error) || '記錄失敗');
-          });
-        });
+        row.appendChild(ic); row.appendChild(nm); row.appendChild(buildLootStepper(d, tab.image, x));
         list.appendChild(row);
       });
     };
-    ov._render = render;
+    const render0 = render;
+    ov._render = () => { const st = list.scrollTop; render0(); list.scrollTop = st; };
     search.addEventListener('input', render);
     render();
     search.focus();

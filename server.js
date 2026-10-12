@@ -837,6 +837,12 @@ function scheduleSiteOnline() {
 
 io.on('connection', (socket) => {
   socket.emit('server:version', SITE_VERSION);
+  socket.on('hello', ({ clientId } = {}) => {
+    if (!socket.data.clientId && typeof clientId === 'string' && /^[A-Za-z0-9-]{8,64}$/.test(clientId)) {
+      socket.data.clientId = clientId;
+      scheduleSiteOnline();
+    }
+  });
   socket.emit('site:online', siteOnlineCount());
   scheduleSiteOnline();
   // ---------- 進入房間（暱稱 + 房間密碼） ----------
@@ -1443,10 +1449,17 @@ io.on('connection', (socket) => {
         });
       });
     }
-    let lobby = 0;
-    for (const [, s] of io.sockets.sockets) if (!s.data.isAdmin && !s.data.roomId) lobby++;
+    // 還沒進房的人（同一個瀏覽器多個分頁算一人；已經在某個房間裡的瀏覽器不重複算）
+    const inRoomClients = new Set();
+    const lobbyIds = new Set();
+    for (const [, s] of io.sockets.sockets) if (!s.data.isAdmin && s.data.roomId) inRoomClients.add(s.data.clientId || s.id);
+    for (const [, s] of io.sockets.sockets) {
+      if (s.data.isAdmin || s.data.roomId) continue;
+      const k = s.data.clientId || s.id;
+      if (!inRoomClients.has(k)) lobbyIds.add(k);
+    }
     users.sort((a, b) => a.room.localeCompare(b.room) || a.since - b.since);
-    cb({ users, lobby, rooms: new Set(users.map((u) => u.room)).size, now: Date.now() });
+    cb({ users, lobby: lobbyIds.size, site: siteOnlineCount(), rooms: new Set(users.map((u) => u.room)).size, now: Date.now() });
   });
 
   socket.on('adminKillStats', (cb) => {

@@ -548,7 +548,7 @@
       box.appendChild(head);
       const body = el('div', 'kps-body');
       body.appendChild(el('div', 'kps-summary',
-        `線上 ${st.users.length} 人（${st.rooms} 個房間）　另有 ${st.lobby} 個連線停在「進入房間」畫面還沒進房　（不含管理者；同一個瀏覽器開多個分頁只算一人）`));
+        `全站在線 ${st.site != null ? st.site : '—'} 人 ＝ 房間內 ${st.users.length} 人（${st.rooms} 個房間）＋ 還沒進房 ${st.lobby} 人（停在「進入房間」畫面）　｜不含管理者；同一個瀏覽器多個分頁只算一人${st.site != null && st.site !== st.users.length + st.lobby ? '；同一個瀏覽器在不同房間用不同暱稱時，房間名單會各算一次' : ''}`));
       const table = el('table', 'kps-table');
       const thead = el('tr');
       ['暱稱', '房間密碼', '身分', '狀態', '分頁數', '在線時間', ''].forEach((h) => thead.appendChild(el('th', '', h)));
