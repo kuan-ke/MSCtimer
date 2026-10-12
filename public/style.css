@@ -1135,88 +1135,89 @@ body.is-muted #pipBtn { display: none !important; }
             → 選王＋王的資訊＋戰利品 → 60 個頻道 → 進行中頻道 → 操作紀錄
    ===================================================================== */
 @media (max-width: 760px) {
-  html, body { height: auto; overflow: auto; }
-  body { overflow-x: hidden; -webkit-text-size-adjust: 100%; }
-  #app { height: auto; min-height: 100vh; padding: 8px 10px 16px; overflow: visible; gap: 8px; }
+  /* 只套用在主視窗；子母畫面（html.is-pip）視窗也很窄，但維持原本的子母畫面排版 */
+  html:not(.is-pip), html:not(.is-pip) body { height: auto; overflow: auto; }
+  html:not(.is-pip) body { overflow-x: hidden; -webkit-text-size-adjust: 100%; }
+  html:not(.is-pip) #app { height: auto; min-height: 100vh; padding: 8px 10px 16px; overflow: visible; gap: 8px; }
 
   /* ---- 頂部 ---- */
-  .top-bar { flex-wrap: wrap; gap: 6px; align-items: center; }
-  .top-bar-left, .top-bar-right { display: contents; }
-  .top-bar h1 { order: 1; flex: 1 1 100%; font-size: 15px; white-space: normal; line-height: 1.3; overflow: visible; }
-  .top-bar h1 .site-logo { width: 26px; height: 26px; }
-  #roomDisplay { order: 2; }
-  #captainInfo { order: 3; }
-  .online-users-bar { order: 4; }
-  #siteOnline { order: 5; }
-  #myNicknameDisplay { order: 6; font-size: 12px; }
-  #connStatus { order: 7; font-size: 11px; padding: 2px 8px; }
-  .top-bar::after { content: ''; order: 9; flex-basis: 100%; height: 0; }
-  .sound-wrap { order: 10; flex: 1 1 0; position: static; }
-  .sound-wrap #soundBtn { width: 100%; }
-  #switchRoomBtn { order: 11; flex: 1 1 0; }
-  #donateBtn { order: 12; flex: 1 1 0; }
-  #guideBtn { order: 13; flex: 1 1 0; }
-  .top-bar .top-btn { padding: 7px 6px; font-size: 13px; white-space: nowrap; text-align: center; }
-  .top-bar .btn-label { display: inline !important; }
-  #importBtn, #exportBtn, #pipBtn { display: none !important; }   /* 手機版不提供匯入／匯出／子母畫面 */
-  .site-online .so-label { display: inline !important; }
-  .room-badge, .captain-info, .online-toggle, .site-online { font-size: 12px; }
+  html:not(.is-pip) .top-bar { flex-wrap: wrap; gap: 6px; align-items: center; }
+  html:not(.is-pip) .top-bar-left, html:not(.is-pip) .top-bar-right { display: contents; }
+  html:not(.is-pip) .top-bar h1 { order: 1; flex: 1 1 100%; font-size: 15px; white-space: normal; line-height: 1.3; overflow: visible; }
+  html:not(.is-pip) .top-bar h1 .site-logo { width: 26px; height: 26px; }
+  html:not(.is-pip) #roomDisplay { order: 2; }
+  html:not(.is-pip) #captainInfo { order: 3; }
+  html:not(.is-pip) .online-users-bar { order: 4; }
+  html:not(.is-pip) #siteOnline { order: 5; }
+  html:not(.is-pip) #myNicknameDisplay { order: 6; font-size: 12px; }
+  html:not(.is-pip) #connStatus { order: 7; font-size: 11px; padding: 2px 8px; }
+  html:not(.is-pip) .top-bar::after { content: ''; order: 9; flex-basis: 100%; height: 0; }
+  html:not(.is-pip) .sound-wrap { order: 10; flex: 1 1 0; position: static; }
+  html:not(.is-pip) .sound-wrap #soundBtn { width: 100%; }
+  html:not(.is-pip) #switchRoomBtn { order: 11; flex: 1 1 0; }
+  html:not(.is-pip) #donateBtn { order: 12; flex: 1 1 0; }
+  html:not(.is-pip) #guideBtn { order: 13; flex: 1 1 0; }
+  html:not(.is-pip) .top-bar .top-btn { padding: 7px 6px; font-size: 13px; white-space: nowrap; text-align: center; }
+  html:not(.is-pip) .top-bar .btn-label { display: inline !important; }
+  html:not(.is-pip) #importBtn, html:not(.is-pip) #exportBtn, html:not(.is-pip) #pipBtn { display: none !important; }   /* 手機版不提供匯入／匯出／子母畫面 */
+  html:not(.is-pip) .site-online .so-label { display: inline !important; }
+  html:not(.is-pip) .room-badge, html:not(.is-pip) .captain-info, html:not(.is-pip) .online-toggle, html:not(.is-pip) .site-online { font-size: 12px; }
   /* 彈出選單改成整條寬度，不會超出螢幕 */
-  .sound-pop, .online-pop { position: fixed; left: 10px; right: 10px; top: auto; width: auto; min-width: 0; max-width: none; margin-top: 6px; z-index: 80; }
-  .online-pop { top: 120px; }
-  .sound-pop { top: 160px; }
+  html:not(.is-pip) .sound-pop, html:not(.is-pip) .online-pop { position: fixed; left: 10px; right: 10px; top: auto; width: auto; min-width: 0; max-width: none; margin-top: 6px; z-index: 80; }
+  html:not(.is-pip) .online-pop { top: 120px; }
+  html:not(.is-pip) .sound-pop { top: 160px; }
 
   /* ---- 主區塊：改成上下一欄、整頁捲動 ---- */
-  .main-row { flex-direction: column; flex: none; gap: 8px; min-height: 0; }
-  .main-left, .main-right { flex: none; height: auto; min-height: 0; }
+  html:not(.is-pip) .main-row { flex-direction: column; flex: none; gap: 8px; min-height: 0; }
+  html:not(.is-pip) .main-left, html:not(.is-pip) .main-right { flex: none; height: auto; min-height: 0; }
 
   /* 選王：一排橫向滑動 */
-  .tabs-row { flex-wrap: nowrap; align-items: center; }
-  .tabs-list { flex-wrap: nowrap; overflow-x: auto; gap: 6px; padding-bottom: 2px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
-  .tabs-list::-webkit-scrollbar { display: none; }
-  .tab-item.tab-item-image:not(.tab-item-compact) { padding: 3px 5px; flex-shrink: 0; }
-  .tab-item.tab-item-image:not(.tab-item-compact) .tab-thumb { width: 38px; height: 38px; }
-  .add-tab-btn { flex-shrink: 0; width: 40px; height: 44px; }
+  html:not(.is-pip) .tabs-row { flex-wrap: nowrap; align-items: center; }
+  html:not(.is-pip) .tabs-list { flex-wrap: nowrap; overflow-x: auto; gap: 6px; padding-bottom: 2px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  html:not(.is-pip) .tabs-list::-webkit-scrollbar { display: none; }
+  html:not(.is-pip) .tab-item.tab-item-image:not(.tab-item-compact) { padding: 3px 5px; flex-shrink: 0; }
+  html:not(.is-pip) .tab-item.tab-item-image:not(.tab-item-compact) .tab-thumb { width: 38px; height: 38px; }
+  html:not(.is-pip) .add-tab-btn { flex-shrink: 0; width: 40px; height: 44px; }
 
   /* 王的資訊 + 最小 / 最大值 + 戰利品 */
-  .boss-range-row { flex-direction: column; align-items: stretch; gap: 8px; padding: 8px 10px; }
-  .boss-info { gap: 10px; }
-  .boss-image { width: 64px; height: 64px; }
-  .boss-name { font-size: 20px; }
-  .boss-stats-main { flex-wrap: wrap; row-gap: 2px; }
-  .range-panel { gap: 10px; }
-  .range-hint { flex-basis: 100%; }
-  .legend-wrap { align-items: stretch; margin-left: 0; gap: 6px; }
-  .legend { flex-wrap: wrap; justify-content: flex-start; gap: 4px 10px; }
-  .kill-count { align-self: flex-start; }
-  .boss-loot-row { justify-content: space-between; }
-  .loot-hint { white-space: normal; font-size: 11.5px; line-height: 1.4; }
-  .drops-btn { flex-shrink: 0; }
+  html:not(.is-pip) .boss-range-row { flex-direction: column; align-items: stretch; gap: 8px; padding: 8px 10px; }
+  html:not(.is-pip) .boss-info { gap: 10px; }
+  html:not(.is-pip) .boss-image { width: 64px; height: 64px; }
+  html:not(.is-pip) .boss-name { font-size: 20px; }
+  html:not(.is-pip) .boss-stats-main { flex-wrap: wrap; row-gap: 2px; }
+  html:not(.is-pip) .range-panel { gap: 10px; }
+  html:not(.is-pip) .range-hint { flex-basis: 100%; }
+  html:not(.is-pip) .legend-wrap { align-items: stretch; margin-left: 0; gap: 6px; }
+  html:not(.is-pip) .legend { flex-wrap: wrap; justify-content: flex-start; gap: 4px 10px; }
+  html:not(.is-pip) .kill-count { align-self: flex-start; }
+  html:not(.is-pip) .boss-loot-row { justify-content: space-between; }
+  html:not(.is-pip) .loot-hint { white-space: normal; font-size: 11.5px; line-height: 1.4; }
+  html:not(.is-pip) .drops-btn { flex-shrink: 0; }
 
   /* 60 個頻道：一排 6 格 */
-  .grid-wrapper { flex: none; display: block; }
-  .grid { grid-template-columns: repeat(6, 1fr); grid-template-rows: none; height: auto; gap: 5px; }
-  .ch-btn { aspect-ratio: 1 / 0.9; border-radius: 6px; -webkit-touch-callout: none; touch-action: manipulation; }
-  .ch-btn:hover { transform: none; }
-  .ch-btn .ch-label { font-size: 13px; }
-  .ch-btn .ch-timer { font-size: 12.5px; margin-top: 1px; }
-  .ch-btn .ch-spawn, .ch-btn .ch-who { display: none; }
+  html:not(.is-pip) .grid-wrapper { flex: none; display: block; }
+  html:not(.is-pip) .grid { grid-template-columns: repeat(6, 1fr); grid-template-rows: none; height: auto; gap: 5px; }
+  html:not(.is-pip) .ch-btn { aspect-ratio: 1 / 0.9; border-radius: 6px; -webkit-touch-callout: none; touch-action: manipulation; }
+  html:not(.is-pip) .ch-btn:hover { transform: none; }
+  html:not(.is-pip) .ch-btn .ch-label { font-size: 13px; }
+  html:not(.is-pip) .ch-btn .ch-timer { font-size: 12.5px; margin-top: 1px; }
+  html:not(.is-pip) .ch-btn .ch-spawn, html:not(.is-pip) .ch-btn .ch-who { display: none; }
 
   /* 進行中頻道（類似子母畫面下方）＋ 操作紀錄：內容多長就多長，跟著整頁捲動 */
-  .main-right .panel { flex: none; }
-  .active-panel .scrollable { overflow: visible; flex: none; }
-  .active-columns { flex: none; }
-  .status-row { font-size: 13px; padding: 6px 7px; }
-  .kill-btn, .standby-btn { padding: 5px 10px; font-size: 12.5px; }
-  .log-panel .log-list { max-height: 320px; overflow-y: auto; flex: none; }
-  .killpoint-pop, .loot-pop { width: 100%; }
-  .top-bar { justify-content: flex-start; }
+  html:not(.is-pip) .main-right .panel { flex: none; }
+  html:not(.is-pip) .active-panel .scrollable { overflow: visible; flex: none; }
+  html:not(.is-pip) .active-columns { flex: none; }
+  html:not(.is-pip) .status-row { font-size: 13px; padding: 6px 7px; }
+  html:not(.is-pip) .kill-btn, html:not(.is-pip) .standby-btn { padding: 5px 10px; font-size: 12.5px; }
+  html:not(.is-pip) .log-panel .log-list { max-height: 320px; overflow-y: auto; flex: none; }
+  html:not(.is-pip) .killpoint-pop, html:not(.is-pip) .loot-pop { width: 100%; }
+  html:not(.is-pip) .top-bar { justify-content: flex-start; }
   /* 進行中頻道每列不換行：名字完整，時間 / 暱稱太長時縮短 */
-  .status-row { flex-wrap: nowrap; gap: 5px; }
-  .status-row > * { flex-shrink: 0; }
-  .status-row .status-tag { flex-shrink: 0; }
-  .status-row .status-who { min-width: 0; flex-shrink: 2; }
-  .status-row .status-spawn { display: none; } /* 手機寬度不夠：出生時間不顯示，保留王名、CH、暱稱、倒數 */
+  html:not(.is-pip) .status-row { flex-wrap: nowrap; gap: 5px; }
+  html:not(.is-pip) .status-row > * { flex-shrink: 0; }
+  html:not(.is-pip) .status-row .status-tag { flex-shrink: 0; }
+  html:not(.is-pip) .status-row .status-who { min-width: 0; flex-shrink: 2; }
+  html:not(.is-pip) .status-row .status-spawn { display: none; } /* 手機寬度不夠：出生時間不顯示，保留王名、CH、暱稱、倒數 */
 }
 
 /* 進站選房間：上次的房間狀態 */
@@ -1238,4 +1239,4 @@ body.is-muted #pipBtn { display: none !important; }
 .contact-btn { border: 1px solid var(--border); background: var(--card-bg-2); border-radius: 8px; font-size: 16px; line-height: 1; padding: 7px 9px; cursor: pointer; }
 .contact-btn:hover { border-color: #60a5fa; }
 .contact-top-btn { padding-left: 9px !important; padding-right: 9px !important; }
-@media (max-width: 760px) { #contactBtn { order: 14; flex: 0 0 auto; } }
+@media (max-width: 760px) { html:not(.is-pip) #contactBtn { order: 14; flex: 0 0 auto; } }

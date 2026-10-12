@@ -1714,6 +1714,7 @@ async function openPip() {
   }
 
   pipDoc = pipWindow.document;
+  pipDoc.documentElement.classList.add('is-pip'); // 子母畫面不要套用手機版排版
   pipDoc.title = 'MSCtimer｜楓之谷經典版｜團隊野王計時器';
 
   // 套用跟主頁一樣的樣式表
