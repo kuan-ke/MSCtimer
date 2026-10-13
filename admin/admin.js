@@ -143,7 +143,7 @@
     panel.appendChild(el('span', 'admin-panel-title', '🔑 管理者：'));
     userListEl = el('div', 'admin-user-list');
     panel.appendChild(userListEl);
-    const mt = el('span', 'admin-panel-title', '🚫 已禁止操作：');
+    const mt = el('span', 'admin-panel-title', '🚫 已禁止操作（全站）：');
     mt.style.marginLeft = '14px';
     panel.appendChild(mt);
     mutedListEl = el('div', 'admin-user-list');
@@ -176,6 +176,11 @@
     donBtn.style.marginLeft = '6px';
     donBtn.addEventListener('click', openDonateAdmin);
     panel.appendChild(donBtn);
+    const rangeBtn = el('button', 'admin-stats-btn', '⏱️ 全站王時間');
+    rangeBtn.title = '調整所有房間每隻王的最小值／最大值';
+    rangeBtn.style.marginLeft = '6px';
+    rangeBtn.addEventListener('click', openBossRanges);
+    panel.appendChild(rangeBtn);
     const topBar = document.querySelector('.top-bar');
     topBar.parentNode.insertBefore(panel, topBar.nextSibling);
 
@@ -265,10 +270,10 @@
 
       const isMuted = A.muted.some((n) => normalize(n) === normalize(u.name));
       const muteBtn = el('button', '', isMuted ? '解除禁止' : '禁止操作');
-      muteBtn.title = '禁止此人進行任何操作（點 CH、擊殺、右鍵回報、分頁編輯），已存在的倒數不受影響';
+      muteBtn.title = '全站禁止：此暱稱進任何房間都無法操作、也看不到計時器（可在「已禁止操作」解除）';
       muteBtn.addEventListener('click', () => {
         if (isMuted) A.socket.emit('adminUnmuteUser', { nickname: u.name });
-        else if (confirm(`確定要禁止「${u.name}」進行任何操作嗎？`)) A.socket.emit('adminMuteUser', { nickname: u.name });
+        else if (confirm(`確定要全站禁止「${u.name}」嗎？\n此暱稱進任何房間都無法操作、也看不到計時器。`)) A.socket.emit('adminMuteUser', { nickname: u.name });
       });
       row.appendChild(muteBtn);
 
@@ -379,6 +384,67 @@
   // ---------- 贊助管理 ----------
   let donOverlay = null;
   function closeDonateAdmin() { if (donOverlay) { donOverlay.remove(); donOverlay = null; } }
+  // ---------- 全站王時間（最小值／最大值） ----------
+  let brOverlay = null;
+  function closeBossRanges() { if (brOverlay) { brOverlay.remove(); brOverlay = null; } }
+  function openBossRanges() {
+    if (!A.isAdmin) return;
+    A.socket.emit('adminBossRanges', null, (res) => {
+      if (!res || !Array.isArray(res.list)) return;
+      closeBossRanges();
+      brOverlay = el('div', 'kps-overlay');
+      brOverlay.addEventListener('click', (e) => { if (e.target === brOverlay) closeBossRanges(); });
+      const box = el('div', 'kps-box');
+      const head = el('div', 'kps-head');
+      head.appendChild(el('h3', '', '⏱️ 全站王時間'));
+      const close = el('button', '', '關閉');
+      close.addEventListener('click', closeBossRanges);
+      head.appendChild(close);
+      box.appendChild(head);
+      const body = el('div', 'kps-body');
+      body.appendChild(el('div', 'kps-summary', '修改後會立刻套用到所有房間（包含之後新開的房間），重新部署後也會保留。單位：分鐘。正在倒數的頻道會依新的時間重新計算狀態；個別頻道另外自訂的時間不受影響。'));
+      const t = el('table', 'kps-table');
+      const hr = el('tr');
+      ['王', '最小值', '最大值', '預設', ''].forEach((h) => hr.appendChild(el('th', '', h)));
+      t.appendChild(hr);
+      res.list.forEach((b) => {
+        const tr = el('tr');
+        const nameTd = el('td', 'name');
+        const ic = el('img'); ic.src = 'images/thumbs/' + b.image; ic.alt = '';
+        ic.style.cssText = 'width:22px;height:22px;vertical-align:middle;margin-right:6px';
+        ic.onerror = () => { ic.onerror = null; ic.src = 'images/' + b.image; };
+        nameTd.appendChild(ic); nameTd.appendChild(document.createTextNode(b.name));
+        tr.appendChild(nameTd);
+        const mk = (v) => { const i = el('input'); i.type = 'number'; i.min = '1'; i.max = '1440'; i.step = '1'; i.value = v; i.style.width = '70px'; return i; };
+        const mnIn = mk(b.min), mxIn = mk(b.max);
+        const td1 = el('td'); td1.appendChild(mnIn); tr.appendChild(td1);
+        const td2 = el('td'); td2.appendChild(mxIn); tr.appendChild(td2);
+        tr.appendChild(el('td', '', `${b.defMin}～${b.defMax}` + (b.changed ? '（已修改）' : '')));
+        const act = el('td');
+        const save = el('button', '', '儲存');
+        const send = (payload) => A.socket.emit('adminSetBossRange', payload, (r) => {
+          if (!r || r.error) { showToast((r && r.error) || '儲存失敗'); return; }
+          showToast(`${b.name}：${r.min}～${r.max} 分，已套用到全站`);
+          openBossRanges();
+        });
+        save.addEventListener('click', () => send({ image: b.image, min: mnIn.value, max: mxIn.value }));
+        act.appendChild(save);
+        if (b.changed) {
+          const rs = el('button', '', '還原預設');
+          rs.style.marginLeft = '4px';
+          rs.addEventListener('click', () => send({ image: b.image, reset: true }));
+          act.appendChild(rs);
+        }
+        tr.appendChild(act);
+        t.appendChild(tr);
+      });
+      body.appendChild(t);
+      box.appendChild(body);
+      brOverlay.appendChild(box);
+      document.body.appendChild(brOverlay);
+    });
+  }
+
   function openDonateAdmin() {
     if (!A.isAdmin) return;
     A.socket.emit('adminDonateList', (res) => {

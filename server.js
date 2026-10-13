@@ -162,6 +162,29 @@ const BOSS_PRESETS = [
   { name: '雪毛怪人(beta)', min: 45,  max: 60,  image: 'snow-fur-monster.png' }
 ];
 
+// 程式內建的時間（管理者按「還原預設」時用）
+const BOSS_DEFAULTS = Object.fromEntries(BOSS_PRESETS.map((b) => [b.image, { min: b.min, max: b.max }]));
+// 管理者調整過的全站王時間：{ 圖檔: { min, max } }（存在 Upstash，重新部署後仍保留）
+let bossRanges = {};
+function applyBossRanges() {
+  BOSS_PRESETS.forEach((b) => {
+    const r = bossRanges[b.image] || BOSS_DEFAULTS[b.image];
+    b.min = r.min; b.max = r.max;
+  });
+}
+
+// 管理者的「禁止操作」是全站的：所有房間共用同一份名單（小寫暱稱 -> 原始暱稱），另外存在 Upstash
+const globalMuted = new Map();
+let legacyMutedMerge = true; // 還沒有全站名單時，啟動時把舊版各房間的名單併進來（只做一次）
+function saveGlobalMuted() {
+  persist.saveGlobalMuted(Array.from(globalMuted.entries())).catch((e) => console.error('[保存] 全站禁止名單儲存失敗：', e.message));
+}
+function onGlobalMutedChanged() {
+  saveGlobalMuted();
+  for (const room of rooms.values()) refreshViews(room);
+  broadcastAdminMutedList();
+}
+
 function createChannel() {
   return {
     state: 'idle',      // idle | counting（倒數中）| window（重生區間：最小值～最大值）| appearing（出現中：超過最大值）
@@ -205,7 +228,7 @@ function createRoom(id, password) {
     tabs: BOSS_PRESETS.map((b) => createTab(b.name, b.min, b.max, b.image, true)),
     connectedUsers: new Map(),  // socket.id -> nickname
     bannedNicknames: new Set(), // 已被管理者移除、不可再進入此房間的暱稱（小寫）
-    mutedNicknames: new Map(),  // 被禁止操作的使用者（小寫暱稱 -> 原始暱稱）
+    mutedNicknames: globalMuted, // 被管理者禁止操作的使用者（全站共用，小寫暱稱 -> 原始暱稱）
     activityLog: [],
     killPoints: [],   // 「時間點」紀錄：每次擊殺時王已重生多久（新的在前）
     loot: {},         // 「戰利品」紀錄：{ 王圖檔: { 道具編號: 次數 } }
@@ -409,10 +432,8 @@ const STATE_ORDER = { idle: 0, counting: 1, window: 2, appearing: 3 };
 function transferNameState(room, targetClientId, oldName, newName) {
   const o = normalizeName(oldName);
   const n = normalizeName(newName);
-  for (const map of [room.mutedNicknames, room.captainMuted]) {
-    if (map.has(o)) { map.delete(o); map.set(n, newName); }
-  }
-  broadcastAdminMutedList(room);
+  if (room.captainMuted.has(o)) { room.captainMuted.delete(o); room.captainMuted.set(n, newName); }
+  if (globalMuted.has(o)) { globalMuted.delete(o); globalMuted.set(n, newName); onGlobalMutedChanged(); }
   refreshViews(room);
   if (room.captainClientId && targetClientId === room.captainClientId) room.captainName = newName;
   broadcastRoomInfo(room);
@@ -442,10 +463,10 @@ function guardMuted(room, socket) {
   return false;
 }
 
-function broadcastAdminMutedList(room) {
-  const info = Array.from(room.mutedNicknames.values());
+function broadcastAdminMutedList() {
+  const info = Array.from(globalMuted.values());
   for (const [, s] of io.sockets.sockets) {
-    if (s.data.isAdmin && s.data.roomId === room.id) s.emit('admin:mutedList', info);
+    if (s.data.isAdmin) s.emit('admin:mutedList', info);
   }
 }
 
@@ -915,7 +936,7 @@ io.on('connection', (socket) => {
     scheduleSiteOnline(); // 進房後才知道 clientId（同瀏覽器多分頁合併成一人）
     socket.data.viewing = null;
     applyView(room, socket, true);
-    if (socket.data.isAdmin) socket.emit('admin:mutedList', Array.from(room.mutedNicknames.values()));
+    if (socket.data.isAdmin) socket.emit('admin:mutedList', Array.from(globalMuted.values()));
     if (isCaptain(room, socket)) socket.emit('captain:muted', Array.from(room.captainMuted.values()));
     broadcastRoomInfo(room);
     broadcastUsers(room);
@@ -1088,7 +1109,7 @@ io.on('connection', (socket) => {
     socket.data.isAdmin = ok;
     socket.emit('adminAuth:result', ok);
     const room = getRoom(socket);
-    if (ok && room) socket.emit('admin:mutedList', Array.from(room.mutedNicknames.values()));
+    if (ok) socket.emit('admin:mutedList', Array.from(globalMuted.values()));
     if (ok) sendAdminRooms(socket);
     if (room) broadcastUsers(room); // 驗證成功後立刻從其他人的線上名單消失
     scheduleSiteOnline();
@@ -1115,23 +1136,23 @@ io.on('connection', (socket) => {
     addLog(room, `管理者將「${oldName}」的暱稱改為「${trimmed}」`, 'admin');
   });
 
-  // 管理者禁止 / 解除禁止某位使用者操作（依暱稱判斷，對方離線後重新連線也一樣有效；只限此房間）
+  // 管理者禁止 / 解除禁止某位使用者操作（全站：依暱稱判斷，進任何房間都一樣；離線再回來、重新部署後仍有效）
   socket.on('adminMuteUser', ({ nickname } = {}) => {
+    if (!socket.data.isAdmin || typeof nickname !== 'string' || !nickname.trim()) return;
+    const name = nickname.trim();
+    globalMuted.set(normalizeName(name), name);
+    onGlobalMutedChanged();
     const room = getRoom(socket);
-    if (!room || !socket.data.isAdmin || !nickname) return;
-    room.mutedNicknames.set(normalizeName(nickname), nickname);
-    broadcastAdminMutedList(room);
-    refreshViews(room);
-    addLog(room, `管理者禁止「${nickname}」進行任何操作`, 'admin');
+    if (room) addLog(room, `管理者禁止「${name}」進行任何操作`, 'admin');
   });
 
   socket.on('adminUnmuteUser', ({ nickname } = {}) => {
-    const room = getRoom(socket);
-    if (!room || !socket.data.isAdmin || !nickname) return;
-    if (room.mutedNicknames.delete(normalizeName(nickname))) {
-      broadcastAdminMutedList(room);
-      refreshViews(room);
-      addLog(room, `管理者解除了「${nickname}」的操作禁止`, 'admin');
+    if (!socket.data.isAdmin || typeof nickname !== 'string' || !nickname.trim()) return;
+    const name = nickname.trim();
+    if (globalMuted.delete(normalizeName(name))) {
+      onGlobalMutedChanged();
+      const room = getRoom(socket);
+      if (room) addLog(room, `管理者解除了「${name}」的操作禁止`, 'admin');
     }
   });
 
@@ -1389,6 +1410,43 @@ io.on('connection', (socket) => {
     saveDonatePending();
     reply({ ok: true });
   });
+  // ---------- 管理者：全站王的最小值／最大值 ----------
+  socket.on('adminBossRanges', (_, cb) => {
+    const reply = typeof cb === 'function' ? cb : () => {};
+    if (!socket.data.isAdmin) return reply({ error: '沒有權限' });
+    reply({ list: BOSS_PRESETS.map((b) => ({ name: b.name, image: b.image, min: b.min, max: b.max,
+      defMin: BOSS_DEFAULTS[b.image].min, defMax: BOSS_DEFAULTS[b.image].max, changed: !!bossRanges[b.image] })) });
+  });
+  socket.on('adminSetBossRange', ({ image, min, max, reset } = {}, cb) => {
+    const reply = typeof cb === 'function' ? cb : () => {};
+    if (!socket.data.isAdmin) return reply({ error: '沒有權限' });
+    const preset = BOSS_PRESETS.find((b) => b.image === image);
+    if (!preset) return reply({ error: '找不到這隻王' });
+    if (reset) {
+      delete bossRanges[image];
+    } else {
+      const mn = Math.round(Number(min));
+      const mx = Math.round(Number(max));
+      if (!Number.isFinite(mn) || !Number.isFinite(mx) || mn < 1 || mx < 1 || mn > 1440 || mx > 1440) return reply({ error: '請輸入 1～1440 分鐘' });
+      if (mx < mn) return reply({ error: '最大值不能小於最小值' });
+      const d = BOSS_DEFAULTS[image];
+      if (mn === d.min && mx === d.max) delete bossRanges[image];
+      else bossRanges[image] = { min: mn, max: mx };
+    }
+    applyBossRanges();
+    // 套用到所有房間的這隻王（各頻道另外自訂的時間不受影響）
+    for (const room of rooms.values()) {
+      const tab = room.tabs.find((t) => t.locked && t.image === image);
+      if (!tab) continue;
+      tab.minMinutes = preset.min;
+      tab.maxMinutes = preset.max;
+      broadcastState(room);
+    }
+    persist.saveBossRanges(bossRanges).catch((e) => console.error('[保存] 王時間儲存失敗：', e.message));
+    console.log(`[管理] ${preset.name} 全站時間改為 ${preset.min}～${preset.max} 分`);
+    reply({ ok: true, min: preset.min, max: preset.max });
+  });
+
   socket.on('adminDonateAdd', ({ name, amount, msg, at, via, anon } = {}, cb) => {
     const reply = typeof cb === 'function' ? cb : () => {};
     if (!socket.data.isAdmin) return reply({ error: '沒有權限' });
@@ -1715,7 +1773,7 @@ function serializeRoom(room) {
     captainClientId: room.captainClientId,
     captainName: room.captainName,
     banned: Array.from(room.bannedNicknames),
-    muted: Array.from(room.mutedNicknames.entries()),
+    muted: [], // 管理者的禁止名單改成全站共用，另外存（msctimer:muted_global）
     captainMuted: Array.from(room.captainMuted.entries()),
     log: room.activityLog.slice(0, SAVED_LOG_LIMIT),
     kp: room.killPoints,
@@ -1736,7 +1794,9 @@ function restoreRoom(data) {
   room.captainClientId = data.captainClientId || null;
   room.captainName = data.captainName || null;
   room.bannedNicknames = new Set(data.banned || []);
-  room.mutedNicknames = new Map(data.muted || []);
+  // 舊版每間房間各自的禁止名單：第一次升級時併進全站名單
+  if (legacyMutedMerge && Array.isArray(data.muted)) data.muted.forEach(([k, v]) => { if (k && v) globalMuted.set(k, v); });
+  room.mutedNicknames = globalMuted;
   room.captainMuted = new Map(data.captainMuted || []);
   room.activityLog = Array.isArray(data.log) ? data.log : [];
   room.killPoints = Array.isArray(data.kp) ? data.kp.slice(0, MAX_KILL_POINTS) : [];
@@ -1786,6 +1846,24 @@ persist.init(serializeRoom);
 
 async function start() {
   if (persist.ENABLED) {
+    // 先讀回管理者調整過的王時間，還原房間時才會用新的時間
+    try {
+      bossRanges = (await persist.loadBossRanges()) || {};
+      Object.keys(bossRanges).forEach((k) => { if (!BOSS_DEFAULTS[k]) delete bossRanges[k]; });
+      applyBossRanges();
+      if (Object.keys(bossRanges).length) console.log(`[保存] 已讀回 ${Object.keys(bossRanges).length} 隻王的自訂時間`);
+    } catch (e) {
+      console.error('[保存] 讀取王時間失敗：', e.message);
+    }
+    try {
+      const gm = await persist.loadGlobalMuted();
+      if (Array.isArray(gm)) {
+        legacyMutedMerge = false;
+        gm.forEach(([k, v]) => { if (k && v) globalMuted.set(k, v); });
+      }
+    } catch (e) {
+      console.error('[保存] 讀取全站禁止名單失敗：', e.message);
+    }
     try {
       const saved = await Promise.race([
         persist.loadAll(),
@@ -1802,6 +1880,8 @@ async function start() {
       // 從舊名稱讀回的房間，馬上以新名稱存一份
       if (persist.loadedFromLegacy) rooms.forEach((room) => persist.markDirty(room));
       console.log(`[保存] 已從 Upstash 讀回 ${rooms.size} 間房間`);
+      if (legacyMutedMerge) { legacyMutedMerge = false; saveGlobalMuted(); rooms.forEach((room) => persist.markDirty(room)); }
+      if (globalMuted.size) console.log(`[保存] 全站禁止操作名單：${globalMuted.size} 人`);
       try {
         globalKillPoints = await persist.loadKillPoints();
         globalLoot = (await persist.loadLootStats()) || {};

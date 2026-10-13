@@ -1897,6 +1897,8 @@ function renderKillPointsInto(d) {
     row.appendChild(name);
     row.appendChild(val);
     row.appendChild(meta);
+    // 五分 / 四分區間的標籤只有管理者看得到
+    if (window.__mscAdmin) {
     const c = classifyKillPoint(k.ms);
     const tags = d.createElement('span');
     tags.className = 'kp-tags';
@@ -1911,6 +1913,7 @@ function renderKillPointsInto(d) {
     if (c.four) addTag('four', '四分區間', c.five ? '同時符合 5 分與 4 分倍數，兩邊都 +1' : '');
     if (!c.five && !c.four) addTag(c.key, c.text, c.title);
     row.appendChild(tags);
+    }
     list.appendChild(row);
   });
   pop.appendChild(list);

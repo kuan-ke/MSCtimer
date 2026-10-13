@@ -192,4 +192,28 @@ async function loadDonatePending() {
   try { return v ? JSON.parse(v) : null; } catch (e) { return null; }
 }
 
-module.exports = { ENABLED, init, loadAll, markDirty, flush, removeRoom, pushKillPoint, loadKillPoints, clearKillPoints, markLootDirty, loadLootStats, clearLootStats, saveDonations, loadDonations, saveDonatePending, loadDonatePending, GLOBAL_KP_MAX, loadedFromLegacy: false };
+// 管理者調整過的全站王重生時間（只存有改過的王：{ 圖檔: { min, max } }）
+const BOSS_RANGES_KEY = PREFIX + 'boss_ranges';
+async function saveBossRanges(obj) {
+  if (!ENABLED) return;
+  await call(['SET', BOSS_RANGES_KEY, JSON.stringify(obj)]);
+}
+async function loadBossRanges() {
+  if (!ENABLED) return null;
+  const v = await call(['GET', BOSS_RANGES_KEY]);
+  try { return v ? JSON.parse(v) : null; } catch (e) { return null; }
+}
+
+// 管理者的全站「禁止操作」名單：[[小寫暱稱, 原始暱稱], ...]
+const MUTED_KEY = PREFIX + 'muted_global';
+async function saveGlobalMuted(list) {
+  if (!ENABLED) return;
+  await call(['SET', MUTED_KEY, JSON.stringify(list)]);
+}
+async function loadGlobalMuted() {
+  if (!ENABLED) return null;
+  const v = await call(['GET', MUTED_KEY]);
+  try { return v ? JSON.parse(v) : null; } catch (e) { return null; }
+}
+
+module.exports = { ENABLED, saveBossRanges, loadBossRanges, saveGlobalMuted, loadGlobalMuted, init, loadAll, markDirty, flush, removeRoom, pushKillPoint, loadKillPoints, clearKillPoints, markLootDirty, loadLootStats, clearLootStats, saveDonations, loadDonations, saveDonatePending, loadDonatePending, GLOBAL_KP_MAX, loadedFromLegacy: false };
