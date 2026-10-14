@@ -245,4 +245,17 @@ async function loadSupporters() {
   try { return v ? JSON.parse(v) : null; } catch (e) { return null; }
 }
 
-module.exports = { ENABLED, setNickOwner, delNickOwner, loadNickOwners, saveSupporters, loadSupporters, saveBossRanges, loadBossRanges, saveGlobalMuted, loadGlobalMuted, init, loadAll, markDirty, flush, removeRoom, pushKillPoint, loadKillPoints, clearKillPoints, markLootDirty, loadLootStats, clearLootStats, saveDonations, loadDonations, saveDonatePending, loadDonatePending, GLOBAL_KP_MAX, loadedFromLegacy: false };
+// 管理者公告：{ id, text, at }
+const ANNOUNCE_KEY = PREFIX + 'announcement';
+async function saveAnnouncement(a) {
+  if (!ENABLED) return;
+  if (a) await call(['SET', ANNOUNCE_KEY, JSON.stringify(a)]);
+  else await call(['DEL', ANNOUNCE_KEY]);
+}
+async function loadAnnouncement() {
+  if (!ENABLED) return null;
+  const v = await call(['GET', ANNOUNCE_KEY]);
+  try { return v ? JSON.parse(v) : null; } catch (e) { return null; }
+}
+
+module.exports = { ENABLED, saveAnnouncement, loadAnnouncement, setNickOwner, delNickOwner, loadNickOwners, saveSupporters, loadSupporters, saveBossRanges, loadBossRanges, saveGlobalMuted, loadGlobalMuted, init, loadAll, markDirty, flush, removeRoom, pushKillPoint, loadKillPoints, clearKillPoints, markLootDirty, loadLootStats, clearLootStats, saveDonations, loadDonations, saveDonatePending, loadDonatePending, GLOBAL_KP_MAX, loadedFromLegacy: false };

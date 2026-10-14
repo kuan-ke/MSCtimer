@@ -176,6 +176,11 @@
     donBtn.style.marginLeft = '6px';
     donBtn.addEventListener('click', openDonateAdmin);
     panel.appendChild(donBtn);
+    const annBtn = el('button', 'admin-stats-btn', '📢 公告');
+    annBtn.title = '發布 / 修改 / 撤下全站公告（所有人畫面上方都會看到）';
+    annBtn.style.marginLeft = '6px';
+    annBtn.addEventListener('click', openAnnounce);
+    panel.appendChild(annBtn);
     const supBtn = el('button', 'admin-stats-btn', '⭐ 贊助者管理');
     supBtn.title = '設定哪些暱稱是贊助者、解除暱稱綁定';
     supBtn.style.marginLeft = '6px';
@@ -389,6 +394,64 @@
   // ---------- 贊助管理 ----------
   let donOverlay = null;
   function closeDonateAdmin() { if (donOverlay) { donOverlay.remove(); donOverlay = null; } }
+  // ---------- 全站公告 ----------
+  let annOverlay = null;
+  function closeAnnounce() { if (annOverlay) { annOverlay.remove(); annOverlay = null; } }
+  function openAnnounce() {
+    if (!A.isAdmin) return;
+    A.socket.emit('adminAnnounceGet', null, (res) => {
+      if (!res || res.error) return;
+      closeAnnounce();
+      annOverlay = el('div', 'kps-overlay');
+      annOverlay.addEventListener('click', (e) => { if (e.target === annOverlay) closeAnnounce(); });
+      const box = el('div', 'kps-box');
+      const head = el('div', 'kps-head');
+      head.appendChild(el('h3', '', '📢 全站公告'));
+      const close = el('button', '', '關閉');
+      close.addEventListener('click', closeAnnounce);
+      head.appendChild(close);
+      box.appendChild(head);
+      const body = el('div', 'kps-body');
+      const cur = res.announcement;
+      body.appendChild(el('div', 'kps-summary', cur
+        ? `目前公告（${new Date(cur.at).toLocaleString()} 發布）會顯示在所有人畫面上方，使用者按 ✕ 可以收起。修改後重新發布，已收起的人也會再看到新公告。`
+        : '目前沒有公告。發布後會立刻顯示在所有人（含之後才進站的人）畫面上方，使用者按 ✕ 可以收起。'));
+      const ta = el('textarea');
+      ta.maxLength = res.max || 500;
+      ta.rows = 6;
+      ta.placeholder = '例如：10/15 改版後王的重生時間有調整，計時器已同步更新～';
+      ta.value = cur ? cur.text : '';
+      ta.style.cssText = 'width:100%;box-sizing:border-box;margin:8px 0;padding:8px;border-radius:8px;border:1px solid #475569;background:#0f172a;color:#e2e8f0;font-size:14px;line-height:1.6;resize:vertical';
+      const cnt = el('div', 'kps-summary', '');
+      const upd = () => { cnt.textContent = `${ta.value.length} / ${ta.maxLength} 字（網址會自動變成連結，可以換行）`; };
+      ta.addEventListener('input', upd); upd();
+      const row = el('div');
+      row.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:6px';
+      const send = (text) => A.socket.emit('adminAnnounce', { text }, (r) => {
+        if (!r || r.error) { showToast((r && r.error) || '失敗'); return; }
+        showToast(text.trim() ? '📢 公告已發布' : '公告已撤下');
+        closeAnnounce();
+      });
+      if (cur) {
+        const rm = el('button', 'danger', '撤下公告');
+        rm.addEventListener('click', () => { if (confirm('確定要撤下目前的公告嗎？')) send(''); });
+        row.appendChild(rm);
+      }
+      const pub = el('button', '', cur ? '更新公告' : '發布公告');
+      pub.addEventListener('click', () => {
+        const t = ta.value.trim();
+        if (!t) { showToast('請輸入公告內容'); return; }
+        send(t);
+      });
+      row.appendChild(pub);
+      body.append(ta, cnt, row);
+      box.appendChild(body);
+      annOverlay.appendChild(box);
+      document.body.appendChild(annOverlay);
+      ta.focus();
+    });
+  }
+
   // ---------- 贊助者管理 ----------
   let supOverlay = null;
   function closeSupporters() { if (supOverlay) { supOverlay.remove(); supOverlay = null; } }

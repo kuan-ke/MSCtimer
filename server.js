@@ -976,8 +976,27 @@ function scheduleSiteOnline() {
   }, 1500);
 }
 
+// ---------- 管理者公告（全站，所有人一進站就看得到；重新部署後仍保留） ----------
+let announcement = null; // { id, text, at }
+const ANNOUNCE_MAX = 500;
+
 io.on('connection', (socket) => {
   socket.emit('server:version', SITE_VERSION);
+  socket.emit('announce', announcement);
+  socket.on('adminAnnounce', ({ text } = {}, cb) => {
+    const reply = typeof cb === 'function' ? cb : () => {};
+    if (!socket.data.isAdmin) return reply({ error: '沒有權限' });
+    const t = (typeof text === 'string' ? text : '').replace(/\r\n/g, '\n').trim().slice(0, ANNOUNCE_MAX);
+    announcement = t ? { id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, text: t, at: Date.now() } : null;
+    persist.saveAnnouncement(announcement).catch((e) => console.error('[公告] 儲存失敗：', e.message));
+    io.emit('announce', announcement);
+    reply({ ok: true, announcement });
+  });
+  socket.on('adminAnnounceGet', (_, cb) => {
+    if (typeof cb !== 'function') return;
+    if (!socket.data.isAdmin) return cb({ error: '沒有權限' });
+    cb({ announcement, max: ANNOUNCE_MAX });
+  });
   socket.on('hello', ({ clientId } = {}) => {
     if (!socket.data.clientId && typeof clientId === 'string' && /^[A-Za-z0-9-]{8,64}$/.test(clientId)) {
       socket.data.clientId = clientId;
@@ -2042,6 +2061,11 @@ async function start() {
       if (Object.keys(bossRanges).length) console.log(`[保存] 已讀回 ${Object.keys(bossRanges).length} 隻王的自訂時間`);
     } catch (e) {
       console.error('[保存] 讀取王時間失敗：', e.message);
+    }
+    try {
+      announcement = (await persist.loadAnnouncement()) || null;
+    } catch (e) {
+      console.error('[保存] 讀取公告失敗：', e.message);
     }
     try {
       const sp = await persist.loadSupporters();

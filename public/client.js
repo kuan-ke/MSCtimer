@@ -527,6 +527,40 @@ socket.on('brag', (b) => {
   playNextBrag();
 });
 
+// ---------- 管理者公告（畫面上方的公告列；按 ✕ 收起，有新公告會再出現） ----------
+const ANNOUNCE_SEEN_KEY = 'msctimer_announce_closed';
+let currentAnnounce = null;
+function renderAnnounceText(el, text) {
+  el.innerHTML = '';
+  const urlRe = /(https?:\/\/[^\s<>"'）)]+)/g;
+  let last = 0; let m;
+  while ((m = urlRe.exec(text))) {
+    if (m.index > last) el.appendChild(document.createTextNode(text.slice(last, m.index)));
+    const a = document.createElement('a');
+    a.href = m[1]; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = m[1];
+    el.appendChild(a);
+    last = m.index + m[1].length;
+  }
+  if (last < text.length) el.appendChild(document.createTextNode(text.slice(last)));
+}
+function updateAnnounceBar() {
+  const bar = document.getElementById('announceBar');
+  const txt = document.getElementById('announceText');
+  if (!bar || !txt) return;
+  const a = currentAnnounce;
+  if (!a || !a.text || storageGet(ANNOUNCE_SEEN_KEY) === a.id) { bar.classList.add('hidden'); return; }
+  renderAnnounceText(txt, a.text);
+  bar.classList.remove('hidden');
+}
+socket.on('announce', (a) => { currentAnnounce = a && a.text ? a : null; updateAnnounceBar(); });
+(function setupAnnounce() {
+  const c = document.getElementById('announceClose');
+  if (c) c.addEventListener('click', () => {
+    if (currentAnnounce) storageSet(ANNOUNCE_SEEN_KEY, currentAnnounce.id);
+    updateAnnounceBar();
+  });
+})();
+
 initNickname();
 
 // ---------- 線上名單 ----------
