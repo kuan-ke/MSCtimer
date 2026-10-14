@@ -121,9 +121,52 @@ app.get(['/', '/index.html'], (req, res) => {
     html = html
       .replace('<script src="client.js"></script>', `<script src="client.js?v=${SITE_VERSION}"></script>`)
       .replace('href="style.css"', `href="style.css?v=${SITE_VERSION}"`);
-    res.type('html').send(html);
+    res.type('html');
+    sendMaybeGzip(req, res, Buffer.from(html, 'utf8'));
   });
 });
+
+// ---------- 省流量：文字檔用 gzip 壓縮、靜態檔加上快取 ----------
+// Render 每月外流量有上限，js / css / html / json 壓縮後大約只剩 1/4～1/5
+function acceptsGzip(req) { return /\bgzip\b/.test(req.headers['accept-encoding'] || ''); }
+function sendMaybeGzip(req, res, buf, gzBuf) {
+  res.set('Vary', 'Accept-Encoding');
+  if (buf.length > 1024 && acceptsGzip(req)) {
+    res.set('Content-Encoding', 'gzip');
+    return res.send(gzBuf || zlib.gzipSync(buf, { level: 9 }));
+  }
+  return res.send(buf);
+}
+const PUBLIC_DIR = path.join(__dirname, 'public');
+const TEXT_TYPES = { '.js': 'application/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.txt': 'text/plain; charset=utf-8', '.webmanifest': 'application/manifest+json' };
+const gzCache = new Map(); // 路徑 -> { mtime, buf, gz, etag }
+app.use((req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  const ext = path.extname(req.path).toLowerCase();
+  const type = TEXT_TYPES[ext];
+  if (!type) return next();
+  if (req.path === '/drops/icons.json') return res.status(404).end(); // 圖示原始包不對外提供（由 /drops/icons/編號.png 個別取用）
+  const file = path.join(PUBLIC_DIR, path.normalize(req.path).replace(/^([/\\])+/, ''));
+  if (!file.startsWith(PUBLIC_DIR + path.sep)) return next();
+  fs.stat(file, (err, st) => {
+    if (err || !st.isFile()) return next();
+    let c = gzCache.get(file);
+    if (!c || c.mtime !== st.mtimeMs) {
+      const buf = fs.readFileSync(file);
+      c = { mtime: st.mtimeMs, buf, gz: zlib.gzipSync(buf, { level: 9 }), etag: '"' + crypto.createHash('sha1').update(buf).digest('hex').slice(0, 16) + '"' };
+      gzCache.set(file, c);
+    }
+    // 帶 ?v=版本 的 client.js / style.css 內容不會變，可以放心長期快取；其他文字檔每次先問一下有沒有更新（沒更新只回 304，幾乎不耗流量）
+    res.set('Cache-Control', req.query.v ? 'public, max-age=31536000, immutable' : (ext === '.json' ? 'public, max-age=86400' : 'no-cache'));
+    res.set('ETag', c.etag);
+    res.type(type);
+    if (req.headers['if-none-match'] === c.etag) return res.status(304).end();
+    sendMaybeGzip(req, res, c.buf, c.gz);
+  });
+});
+
+// 健康檢查（給 UptimeRobot 之類的定時喚醒服務用，回應只有幾個字，不會耗流量）
+app.get('/healthz', (req, res) => { res.set('Cache-Control', 'no-store'); res.type('text/plain').send('ok'); });
 
 // 管理者腳本放在 public 之外，密鑰正確才給，否則一律回 404（看起來就像不存在）
 const ADMIN_JS_PATH = path.join(__dirname, 'admin', 'admin.js');
@@ -144,7 +187,8 @@ app.get('/drops/icons/:file', (req, res) => {
   res.set('Cache-Control', 'public, max-age=604800');
   res.send(Buffer.from(b64, 'base64'));
 });
-app.use(express.static(path.join(__dirname, 'public'), { index: false }));
+// 圖片等其他靜態檔：瀏覽器快取 1 天（之後只確認有沒有更新）
+app.use(express.static(path.join(__dirname, 'public'), { index: false, maxAge: '1d' }));
 
 let nextTabId = 1;
 
@@ -487,6 +531,8 @@ function addLog(room, message, type) {
 // 各王可記錄的道具（來自 public/drops/drops.json，遊戲的怪物圖鑑戰利品清單）
 let DROPS = {};
 try { DROPS = JSON.parse(fs.readFileSync(path.join(__dirname, 'public', 'drops', 'drops.json'), 'utf8')); } catch (e) { console.error('[戰利品] 讀不到 drops.json：', e.message); }
+const BRAG_COOLDOWN_MS = 30000; // 同一個人 30 秒內只能炫耀一次
+const bragLast = new Map();
 const DROP_ITEMS = {};
 Object.entries(DROPS).forEach(([img, b]) => { DROP_ITEMS[img] = new Map((b.drops || []).map((d) => [d.id, d.name])); });
 const LOOT_MIN_KILLS = 10; // 房間這隻王擊殺達 10 次以上，才算進全站戰利品統計
@@ -516,7 +562,81 @@ function donateMonths() {
   set.add(monthKey(Date.now()));
   return Array.from(set).sort().reverse();
 }
-function saveDonations() { persist.saveDonations(donations).catch((e) => console.error('[贊助] 儲存失敗：', e.message)); }
+function saveDonations() {
+  persist.saveDonations(donations).catch((e) => console.error('[贊助] 儲存失敗：', e.message));
+  grantSupportersFromDonations();
+}
+
+// ---------- 贊助者（當月贊助累計 NT$50 以上，或管理者手動設定；只在當月有效，下個月重置） ----------
+// 贊助者以暱稱判斷（暱稱綁定瀏覽器，見下方「暱稱綁定」）；管理者一律視為贊助者
+const SUPPORTER_MIN = 50;
+const supporters = new Map(); // 小寫暱稱 -> { name, by: 'donate' | 'admin', at, month: 'YYYY-MM'（台灣時間） }
+function saveSupporters() {
+  persist.saveSupporters(Array.from(supporters.entries())).catch((e) => console.error('[贊助者] 儲存失敗：', e.message));
+}
+function isSupporterName(name) {
+  if (!name) return false;
+  const e = supporters.get(normalizeName(name));
+  return !!e && e.month === monthKey(Date.now());
+}
+function isSupporter(socket) { return !!socket.data.isAdmin || isSupporterName(socket.data.nickname); }
+function sendPerks(socket) { socket.emit('me:perks', { supporter: isSupporter(socket) }); }
+function refreshPerks(name) {
+  const n = name ? normalizeName(name) : null;
+  for (const [, s] of io.sockets.sockets) {
+    if (s.data.nickname && (!n || normalizeName(s.data.nickname) === n)) sendPerks(s);
+  }
+}
+// 贊助紀錄裡（含匿名但有留暱稱的）「當月」累計滿 NT$50 的暱稱，自動成為本月贊助者
+function grantSupportersFromDonations() {
+  const cur = monthKey(Date.now());
+  const totals = new Map();
+  donations.forEach((d) => {
+    if (!d.name || monthKey(d.at) !== cur) return;
+    const n = normalizeName(d.name);
+    const t = totals.get(n) || { name: d.name, sum: 0 };
+    t.sum += Number(d.amount) || 0;
+    totals.set(n, t);
+  });
+  let changed = false;
+  totals.forEach((t, n) => {
+    if (t.sum >= SUPPORTER_MIN && !isSupporterName(t.name)) {
+      supporters.set(n, { name: t.name, by: 'donate', at: Date.now(), month: cur });
+      changed = true;
+      refreshPerks(t.name);
+      notifyAdminsSafe(`⭐ ${t.name} 本月贊助滿 NT$${SUPPORTER_MIN}，已自動成為本月贊助者`);
+    }
+  });
+  if (changed) saveSupporters();
+}
+// 跨月時（台灣時間）：清掉上個月的贊助者、重新計算本月，並通知所有在線的人
+let supporterMonth = null;
+function checkSupporterMonth() {
+  const cur = monthKey(Date.now());
+  if (supporterMonth === cur) return;
+  const first = supporterMonth === null;
+  supporterMonth = cur;
+  let removed = false;
+  for (const [n, e] of supporters) { if (e.month !== cur) { supporters.delete(n); removed = true; } }
+  if (removed) saveSupporters();
+  grantSupportersFromDonations();
+  if (!first) refreshPerks(null);
+}
+setInterval(checkSupporterMonth, 60000);
+function notifyAdminsSafe(msg) { try { if (typeof notifyAdmins === 'function') notifyAdmins(msg); } catch (e) { /* ignore */ } }
+
+// ---------- 暱稱綁定：每個暱稱只屬於第一個使用它的瀏覽器 ----------
+const nickOwners = new Map(); // 小寫暱稱 -> clientId
+function nickOwnedByOther(name, clientId) {
+  const owner = nickOwners.get(normalizeName(name));
+  return !!owner && !!clientId && owner !== clientId;
+}
+function claimNick(name, clientId) {
+  const n = normalizeName(name);
+  if (!clientId || nickOwners.has(n)) return;
+  nickOwners.set(n, clientId);
+  persist.setNickOwner(n, clientId).catch((e) => console.error('[暱稱] 儲存失敗：', e.message));
+}
 // 待確認的贊助：[{ id, code, name, amount, msg, via, at }]
 let donatePending = [];
 const DONATE_PENDING_MAX = 300;
@@ -887,6 +1007,12 @@ io.on('connection', (socket) => {
       return;
     }
 
+    // 暱稱已被其他瀏覽器使用過（管理者不受限制）
+    if (!socket.data.isAdmin && nickOwnedByOther(trimmedName, socket.data.clientId)) {
+      socket.emit('join:error', { field: 'nickname', code: 'owned', message: '這個暱稱已經有人使用過了（每個暱稱只屬於第一個使用它的瀏覽器），請換一個' });
+      return;
+    }
+
     const roomId = roomIdFromPassword(pw);
     const existing = rooms.get(roomId);
 
@@ -918,6 +1044,7 @@ io.on('connection', (socket) => {
     const room = existing || createRoom(roomId, pw);
     if (created) rooms.set(roomId, room);
 
+    if (!socket.data.isAdmin) claimNick(trimmedName, socket.data.clientId);
     socket.join(roomId);
     socket.data.roomId = roomId;
     socket.data.nickname = trimmedName;
@@ -933,6 +1060,7 @@ io.on('connection', (socket) => {
     if (created) persist.markDirty(room);
 
     socket.emit('join:ack', { nickname: trimmedName, created, captain: isCaptain(room, socket) });
+    sendPerks(socket);
     scheduleSiteOnline(); // 進房後才知道 clientId（同瀏覽器多分頁合併成一人）
     socket.data.viewing = null;
     applyView(room, socket, true);
@@ -1038,6 +1166,7 @@ io.on('connection', (socket) => {
         if (!name) return;
         tab = room.tabs.find((t) => !t.locked && t.name === name);
         if (!tab) {
+          if (!isSupporter(socket)) return; // 新增自訂王是贊助者專屬：匯入時不會幫非贊助者建立新的自訂王
           const mn = Number(it.mn) > 0 ? Number(it.mn) : 45;
           const mx = Math.max(mn, Number(it.mx) > 0 ? Number(it.mx) : 60);
           tab = createTab(name, mn, mx, null, false);
@@ -1131,6 +1260,8 @@ io.on('connection', (socket) => {
       t.emit('forceNickname', trimmed);
     });
     transferNameState(room, targets[0].data.clientId, oldName, trimmed);
+    if (!targets[0].data.isAdmin) claimNick(trimmed, targets[0].data.clientId);
+    targets.forEach((t) => sendPerks(t));
     sendCaptainMuted(room);
     broadcastUsers(room);
     addLog(room, `管理者將「${oldName}」的暱稱改為「${trimmed}」`, 'admin');
@@ -1447,6 +1578,62 @@ io.on('connection', (socket) => {
     reply({ ok: true, min: preset.min, max: preset.max });
   });
 
+  // ---------- 管理者：贊助者名單、暱稱綁定 ----------
+  socket.on('adminSupporters', (_, cb) => {
+    const reply = typeof cb === 'function' ? cb : () => {};
+    if (!socket.data.isAdmin) return reply({ error: '沒有權限' });
+    checkSupporterMonth();
+    reply({ list: Array.from(supporters.values()).filter((e) => e.month === monthKey(Date.now())).sort((a, b) => b.at - a.at), min: SUPPORTER_MIN, month: monthKey(Date.now()) });
+  });
+  socket.on('adminSupporterSet', ({ name, on } = {}, cb) => {
+    const reply = typeof cb === 'function' ? cb : () => {};
+    if (!socket.data.isAdmin) return reply({ error: '沒有權限' });
+    const nm = (typeof name === 'string' ? name : '').trim().slice(0, 20);
+    if (!nm) return reply({ error: '請輸入暱稱' });
+    const n = normalizeName(nm);
+    if (on) supporters.set(n, { name: nm, by: 'admin', at: Date.now(), month: monthKey(Date.now()) });
+    else if (!supporters.delete(n)) return reply({ error: '這個暱稱不是贊助者' });
+    saveSupporters();
+    refreshPerks(nm);
+    reply({ ok: true });
+  });
+  socket.on('adminNickInfo', ({ name } = {}, cb) => {
+    const reply = typeof cb === 'function' ? cb : () => {};
+    if (!socket.data.isAdmin) return reply({ error: '沒有權限' });
+    const nm = (typeof name === 'string' ? name : '').trim();
+    if (!nm) return reply({ error: '請輸入暱稱' });
+    reply({ bound: nickOwners.has(normalizeName(nm)), total: nickOwners.size });
+  });
+  socket.on('adminNickUnbind', ({ name } = {}, cb) => {
+    const reply = typeof cb === 'function' ? cb : () => {};
+    if (!socket.data.isAdmin) return reply({ error: '沒有權限' });
+    const n = normalizeName((typeof name === 'string' ? name : '').trim());
+    if (!n || !nickOwners.has(n)) return reply({ error: '這個暱稱目前沒有綁定任何瀏覽器' });
+    nickOwners.delete(n);
+    persist.delNickOwner(n).catch((e) => console.error('[暱稱] 刪除失敗：', e.message));
+    reply({ ok: true });
+  });
+
+  // ---------- 贊助者：炫耀戰利品（全站通知） ----------
+  socket.on('brag', ({ image, itemId } = {}, cb) => {
+    const reply = typeof cb === 'function' ? cb : () => {};
+    const room = getRoom(socket);
+    if (!room || !socket.data.nickname) return reply({ error: '請先進入房間' });
+    if (isMuted(room, socket)) return reply({ error: '你目前被禁止操作' });
+    if (!isSupporter(socket)) return reply({ error: '炫耀是贊助者專屬功能（當月贊助滿 NT$50 即可使用）' });
+    const items = DROP_ITEMS[image];
+    const id = Number(itemId);
+    if (!items || !items.has(id)) return reply({ error: '找不到這個戰利品' });
+    const key = socket.data.clientId || socket.id;
+    const now = Date.now();
+    const last = bragLast.get(key) || 0;
+    if (now - last < BRAG_COOLDOWN_MS) return reply({ error: `炫耀太頻繁了，請 ${Math.ceil((BRAG_COOLDOWN_MS - (now - last)) / 1000)} 秒後再試` });
+    bragLast.set(key, now);
+    const boss = (DROPS[image] && DROPS[image].name) || (BOSS_PRESETS.find((b) => b.image === image) || {}).name || '王';
+    io.emit('brag', { name: socket.data.nickname, boss, item: items.get(id), itemId: id, at: now });
+    reply({ ok: true });
+  });
+
   socket.on('adminDonateAdd', ({ name, amount, msg, at, via, anon } = {}, cb) => {
     const reply = typeof cb === 'function' ? cb : () => {};
     if (!socket.data.isAdmin) return reply({ error: '沒有權限' });
@@ -1559,6 +1746,7 @@ io.on('connection', (socket) => {
   socket.on('addTab', (name) => {
     const room = requireRoom();
     if (!room) return;
+    if (!isSupporter(socket)) { socket.emit('perk:denied', '新增自訂王是贊助者專屬功能（當月贊助滿 NT$50 即可使用）'); return; }
     room.tabs.push(createTab(typeof name === 'string' ? name : '', 45, 60, null, false));
     broadcastState(room);
   });
@@ -1856,6 +2044,16 @@ async function start() {
       console.error('[保存] 讀取王時間失敗：', e.message);
     }
     try {
+      const sp = await persist.loadSupporters();
+      // 舊資料沒有月份的，當作本月
+      if (Array.isArray(sp)) sp.forEach(([k, v]) => { if (k && v && v.name) supporters.set(k, { ...v, month: v.month || monthKey(Date.now()) }); });
+      const no = await persist.loadNickOwners();
+      if (Array.isArray(no)) no.forEach(([k, v]) => { if (k && v) nickOwners.set(k, v); });
+      console.log(`[保存] 贊助者 ${supporters.size} 人、已綁定暱稱 ${nickOwners.size} 個`);
+    } catch (e) {
+      console.error('[保存] 讀取贊助者 / 暱稱綁定失敗：', e.message);
+    }
+    try {
       const gm = await persist.loadGlobalMuted();
       if (Array.isArray(gm)) {
         legacyMutedMerge = false;
@@ -1887,6 +2085,7 @@ async function start() {
         globalLoot = (await persist.loadLootStats()) || {};
         donations = (await persist.loadDonations()) || [];
         donatePending = (await persist.loadDonatePending()) || [];
+        checkSupporterMonth(); // 清掉過期的、本月已經滿 NT$50 的贊助者自動加入
         console.log(`[保存] 已讀回 ${donations.length} 筆贊助紀錄`);
         // 門檻調整後，已經達標的房間啟動時就補進全站統計
         rooms.forEach((r) => Object.keys(DROP_ITEMS).forEach((img) => updateGlobalLoot(r, img)));

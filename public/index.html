@@ -51,6 +51,15 @@
         </div>
       </div>
       <button id="pipBtn" class="top-btn" title="開啟子母畫面（浮動在最上層的小視窗）">📺<span class="btn-label"> 子母畫面</span></button>
+      <div class="sound-wrap theme-wrap">
+        <button id="themeBtn" class="top-btn theme-btn" title="更改介面：預設／霓虹／雪原（霓虹、雪原為贊助者專屬）">🎨<span class="btn-label"> 介面</span></button>
+        <div id="themePop" class="sound-pop theme-pop hidden">
+          <button type="button" class="theme-opt" data-theme="default"><span class="theme-sw sw-default"></span>預設</button>
+          <button type="button" class="theme-opt" data-theme="neon"><span class="theme-sw sw-neon"></span>霓虹<span class="theme-lock">⭐ 贊助者</span></button>
+          <button type="button" class="theme-opt" data-theme="snow"><span class="theme-sw sw-snow"></span>雪原<span class="theme-lock">⭐ 贊助者</span></button>
+          <div class="sound-note">霓虹、雪原為贊助者專屬（贊助 NT$50 以上）</div>
+        </div>
+      </div>
       <span id="roomDisplay" class="room-badge hidden" title="點一下顯示 / 隱藏房間密碼">🔐 房間：<span id="roomPasswordText">••••</span></span>
       <button id="switchRoomBtn" class="top-btn hidden" title="離開目前房間，輸入其他房間密碼">換房間</button>
       <span id="myNicknameDisplay" class="my-nickname"></span>
@@ -147,7 +156,7 @@
 
     <label class="join-label" for="nicknameInput">暱稱</label>
     <input type="text" id="nicknameInput" maxlength="20" placeholder="輸入暱稱..." autocomplete="off" data-lpignore="true" data-1p-ignore="true" />
-    <p class="modal-note join-hint nick-warn" id="nicknameHint">⚠️ 暱稱只能取一次，取後無法更改，請謹慎輸入。</p>
+    <p class="modal-note join-hint nick-warn" id="nicknameHint">⚠️ 暱稱只能取一次，取後無法更改，而且只屬於這個瀏覽器，請謹慎輸入。</p>
 
     <label class="join-label" for="roomPasswordInput">房間密碼</label>
     <div class="password-row">
@@ -181,6 +190,7 @@
       <p class="donate-sub">每個月重新計算，同一個暱稱當月的贊助金額會加總，金額最高的排在最上面。</p>
       <div id="donateBoard" class="donate-board"></div>
       <p class="donate-msg">每個月都要花很多 token 跟伺服器維護費用……<br />如果大大們有打到好寶物，或是有餘力的話，也可以請作者喝杯奶茶，感激不盡 &gt;&lt;</p>
+      <div class="donate-perks"><b>⭐ 當月贊助滿 NT$50，成為本月贊助者：</b>＋ 新增自訂王 ／ 炫耀戰利品（全站通知）／ 🎨 霓虹、雪原介面。<br /><small>贊助者身分只在當月有效，下個月 1 號重置。以贊助時填寫的暱稱為準（匿名贊助也請填暱稱）。暱稱只屬於第一次使用它的瀏覽器，請不要換瀏覽器或清除瀏覽器資料。</small></div>
       <h4 class="donate-step">① 想上贊助榜？先填寫（也可以匿名）</h4>
       <div class="donate-form">
         <label>暱稱<input type="text" id="donName" maxlength="20" placeholder="要顯示在贊助榜上的名字" autocomplete="off" /></label>
@@ -265,8 +275,16 @@
         <li><b>線上名單</b>：點「🟢 線上 N 人」打開名單。🚫 禁止操作：對方不能按任何東西，也看不到計時器。🚪 移出：請對方離開房間（之後還能用同一個暱稱再進來）。</li>
       </ul>
 
+      <h4>⭐ 贊助者專屬（當月贊助滿 NT$50，當月有效）</h4>
+      <ul>
+        <li><b>＋ 新增自訂王</b>：在王的分頁旁按「＋」新增自己的分頁，自訂最小值 / 最大值。</li>
+        <li><b>炫耀</b>：在「🌟 出現中」的「📦 戰利品」紀錄裡按 VIP 圖示，全站都會跳出「XX 擊殺了 XX 後，獲得了 XXX！大家一起恭喜他！」。</li>
+        <li><b>🎨 更換介面</b>：右上角「🎨 介面」可以切換成霓虹或雪原介面。</li>
+      </ul>
+
       <h4>💡 小提醒</h4>
       <ul>
+        <li><b>暱稱只屬於一個瀏覽器</b>：每個暱稱只能在第一次使用它的瀏覽器上使用（手機和電腦請用不同暱稱）。換電腦、換瀏覽器或清除瀏覽器資料後想用原本的暱稱（例如贊助者），請寫信給作者。</li>
         <li>密碼不要用 123456、aaaaaa 這種好猜的，不然陌生人可能誤闖。</li>
         <li>按鈕上的說明：滑鼠停在按鈕上，大多會顯示用途。</li>
       </ul>
@@ -338,7 +356,7 @@
   </div>
 </div>
 
-<script src="/socket.io/socket.io.js"></script>
+<script src="/socket.io/socket.io.min.js"></script>
 <script src="client.js"></script>
 </body>
 </html>

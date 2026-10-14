@@ -176,6 +176,11 @@
     donBtn.style.marginLeft = '6px';
     donBtn.addEventListener('click', openDonateAdmin);
     panel.appendChild(donBtn);
+    const supBtn = el('button', 'admin-stats-btn', '⭐ 贊助者管理');
+    supBtn.title = '設定哪些暱稱是贊助者、解除暱稱綁定';
+    supBtn.style.marginLeft = '6px';
+    supBtn.addEventListener('click', openSupporters);
+    panel.appendChild(supBtn);
     const rangeBtn = el('button', 'admin-stats-btn', '⏱️ 全站王時間');
     rangeBtn.title = '調整所有房間每隻王的最小值／最大值';
     rangeBtn.style.marginLeft = '6px';
@@ -384,6 +389,91 @@
   // ---------- 贊助管理 ----------
   let donOverlay = null;
   function closeDonateAdmin() { if (donOverlay) { donOverlay.remove(); donOverlay = null; } }
+  // ---------- 贊助者管理 ----------
+  let supOverlay = null;
+  function closeSupporters() { if (supOverlay) { supOverlay.remove(); supOverlay = null; } }
+  function openSupporters() {
+    if (!A.isAdmin) return;
+    A.socket.emit('adminSupporters', null, (res) => {
+      if (!res || !Array.isArray(res.list)) return;
+      closeSupporters();
+      supOverlay = el('div', 'kps-overlay');
+      supOverlay.addEventListener('click', (e) => { if (e.target === supOverlay) closeSupporters(); });
+      const box = el('div', 'kps-box');
+      const head = el('div', 'kps-head');
+      head.appendChild(el('h3', '', `⭐ ${res.month ? res.month.replace('-', ' 年 ') + ' 月' : '本月'}贊助者（${res.list.length} 人）`));
+      const close = el('button', '', '關閉');
+      close.addEventListener('click', closeSupporters);
+      head.appendChild(close);
+      box.appendChild(head);
+      const body = el('div', 'kps-body');
+      body.appendChild(el('div', 'kps-summary', `贊助者可以：新增自訂王、炫耀戰利品（全站通知）、霓虹／雪原介面。【只在當月有效，下個月 1 號（台灣時間）自動重置】當月贊助紀錄裡同一個暱稱累計滿 NT$${res.min} 會自動加入；也可以在這裡手動加入（同樣只到月底）或移除。以暱稱判斷，而每個暱稱只屬於第一個使用它的瀏覽器。`));
+      // 手動加入
+      const addRow = el('div');
+      addRow.style.cssText = 'display:flex;gap:6px;margin:8px 0;flex-wrap:wrap';
+      const nameIn = el('input'); nameIn.placeholder = '暱稱'; nameIn.maxLength = 20;
+      const addBtn = el('button', '', '＋ 設為贊助者');
+      addBtn.addEventListener('click', () => {
+        const name = nameIn.value.trim();
+        if (!name) return;
+        A.socket.emit('adminSupporterSet', { name, on: true }, (r) => {
+          if (!r || r.error) { showToast((r && r.error) || '失敗'); return; }
+          showToast(`已將「${name}」設為贊助者`);
+          openSupporters();
+        });
+      });
+      addRow.append(nameIn, addBtn);
+      body.appendChild(addRow);
+      const t = el('table', 'kps-table');
+      const hr = el('tr');
+      ['暱稱', '來源', '時間', ''].forEach((h) => hr.appendChild(el('th', '', h)));
+      t.appendChild(hr);
+      if (!res.list.length) { const tr = el('tr'); const td = el('td', '', '目前沒有贊助者'); td.colSpan = 4; tr.appendChild(td); t.appendChild(tr); }
+      res.list.forEach((x) => {
+        const tr = el('tr');
+        tr.appendChild(el('td', 'name', x.name));
+        tr.appendChild(el('td', '', x.by === 'donate' ? '💖 本月贊助滿額' : '🔑 管理者設定'));
+        tr.appendChild(el('td', '', new Date(x.at).toLocaleString()));
+        const td = el('td');
+        const rm = el('button', 'danger', '移除');
+        rm.addEventListener('click', () => {
+          if (!confirm(`確定要移除「${x.name}」的贊助者身分嗎？`)) return;
+          A.socket.emit('adminSupporterSet', { name: x.name, on: false }, (r) => {
+            if (!r || r.error) { showToast((r && r.error) || '失敗'); return; }
+            openSupporters();
+          });
+        });
+        td.appendChild(rm);
+        tr.appendChild(td);
+        t.appendChild(tr);
+      });
+      body.appendChild(t);
+      // 暱稱綁定
+      body.appendChild(el('h4', 'don-h', '🔗 暱稱綁定'));
+      body.appendChild(el('div', 'kps-summary', '每個暱稱只能在第一次使用它的瀏覽器上使用。如果有人換了電腦／手機、或清除了瀏覽器資料，想繼續用原本的暱稱，可以在這裡解除綁定，他下次用新的瀏覽器進房時就會重新綁定。'));
+      const ubRow = el('div');
+      ubRow.style.cssText = 'display:flex;gap:6px;margin:8px 0;flex-wrap:wrap';
+      const ubIn = el('input'); ubIn.placeholder = '暱稱'; ubIn.maxLength = 20;
+      const ubBtn = el('button', 'danger', '解除綁定');
+      ubBtn.addEventListener('click', () => {
+        const name = ubIn.value.trim();
+        if (!name) return;
+        if (!confirm(`確定要解除「${name}」的暱稱綁定嗎？\n解除後，下一個用這個暱稱進房的瀏覽器就會擁有它。`)) return;
+        A.socket.emit('adminNickUnbind', { name }, (r) => {
+          if (!r || r.error) { showToast((r && r.error) || '失敗'); return; }
+          showToast(`已解除「${name}」的綁定`);
+          ubIn.value = '';
+        });
+      });
+      ubRow.append(ubIn, ubBtn);
+      body.appendChild(ubRow);
+      box.appendChild(body);
+      supOverlay.appendChild(box);
+      document.body.appendChild(supOverlay);
+      nameIn.focus();
+    });
+  }
+
   // ---------- 全站王時間（最小值／最大值） ----------
   let brOverlay = null;
   function closeBossRanges() { if (brOverlay) { brOverlay.remove(); brOverlay = null; } }

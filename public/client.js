@@ -154,7 +154,7 @@ function showNicknameOverlay(errorMsg, opts = {}) {
   nicknameInput.readOnly = lockName;
   document.getElementById('nicknameHint').textContent = lockName
     ? '您的暱稱已鎖定，無法自行更改。'
-    : '⚠️ 暱稱只能取一次，取後無法更改，請謹慎輸入。';
+    : '⚠️ 暱稱只能取一次，取後無法更改，而且只屬於這個瀏覽器，請謹慎輸入。';
   document.getElementById('nicknameHint').classList.toggle('nick-warn', !lockName);
 
   if (!opts.keepPassword) roomPasswordInput.value = myRoomPassword || '';
@@ -321,7 +321,7 @@ socket.on('join:error', ({ field, code, message }) => {
   manualJoinPending = false;
   updateRoomDisplay();
   amCaptain = false;
-  if (code === 'banned') {
+  if (code === 'banned' || code === 'owned') {
     // 這個暱稱被移出此房間：解除暱稱鎖定，讓使用者換一個
     if (myRoomPassword && roomNicks[myRoomPassword]) { delete roomNicks[myRoomPassword]; saveRoomNicks(); }
     storageRemove(NICKNAME_KEY);
@@ -407,6 +407,101 @@ function showToast(msg) {
   document.body.appendChild(t);
   setTimeout(() => t.remove(), 2500);
 }
+
+// ---------- 贊助者專屬（新增自訂王、炫耀、霓虹介面） ----------
+let mePerks = { supporter: false };
+function isSupporterMe() { return !!mePerks.supporter; }
+const THEME_KEY = 'msctimer_theme';
+// pipWindow 在檔案後面才宣告（let），這裡用 try 包起來避免載入時就存取到而出錯
+function getPipWin() { try { return pipWindow; } catch (e) { return null; } }
+const THEMES = ['default', 'neon', 'snow'];
+function currentTheme() {
+  const t = storageGet(THEME_KEY);
+  return isSupporterMe() && THEMES.includes(t) ? t : 'default';
+}
+function setThemeClass(root, t) {
+  if (!root) return;
+  root.classList.toggle('theme-neon', t === 'neon');
+  root.classList.toggle('theme-snow', t === 'snow');
+}
+function applyTheme() {
+  const t = currentTheme();
+  setThemeClass(document.documentElement, t);
+  const pw = getPipWin();
+  if (pw && pw.document) setThemeClass(pw.document.documentElement, t);
+  document.querySelectorAll('.theme-opt').forEach((b) => {
+    b.classList.toggle('active', b.dataset.theme === t);
+    b.classList.toggle('locked', b.dataset.theme !== 'default' && !isSupporterMe());
+  });
+}
+function applyPerksUI() {
+  addTabBtn.classList.toggle('perk-locked', !isSupporterMe());
+  addTabBtn.title = isSupporterMe() ? '新增自訂王（贊助者專屬）' : '⭐ 新增自訂王：贊助者專屬功能';
+  applyTheme();
+  // 出現中「📦 戰利品」清單上的炫耀按鈕
+  if (typeof renderLoot === 'function') { try { renderLoot(); } catch (e) { /* ignore */ } }
+}
+let gotPerks = false;
+socket.on('me:perks', (p) => {
+  const was = isSupporterMe();
+  const first = !gotPerks;
+  gotPerks = true;
+  mePerks = p || { supporter: false };
+  applyPerksUI();
+  if (!first && !was && isSupporterMe()) showToast('⭐ 你已經是贊助者了！可以使用新增自訂王、炫耀、霓虹／雪原介面，感謝支持 ❤️');
+});
+socket.on('perk:denied', (msg) => showToast('⭐ ' + (msg || '贊助者專屬功能')));
+(function setupThemePicker() {
+  const tb = document.getElementById('themeBtn');
+  const pop = document.getElementById('themePop');
+  if (!tb || !pop) return;
+  tb.addEventListener('click', (e) => { e.stopPropagation(); pop.classList.toggle('hidden'); applyTheme(); });
+  document.addEventListener('click', (e) => { if (!pop.contains(e.target) && e.target !== tb && !tb.contains(e.target)) pop.classList.add('hidden'); });
+  pop.querySelectorAll('.theme-opt').forEach((b) => b.addEventListener('click', () => {
+    const t = b.dataset.theme;
+    if (t !== 'default' && !isSupporterMe()) { showToast('⭐ 霓虹、雪原介面是贊助者專屬（當月贊助滿 NT$50 即可使用，詳見「💖 贊助」）'); return; }
+    storageSet(THEME_KEY, t);
+    applyTheme();
+    pop.classList.add('hidden');
+  }));
+  applyTheme();
+})();
+
+// 炫耀：全站跳出通知 3 秒
+function bragItem(image, item, d) {
+  if (!ensureNickname()) return;
+  if (!isSupporterMe()) { showToast('⭐ 炫耀是贊助者專屬功能'); return; }
+  const boss = (dropsData && dropsData[image] && dropsData[image].name) || '王';
+  if (!((d && d.defaultView) || window).confirm(`要向全站炫耀「擊殺了${boss}後，獲得了 ${item.name}」嗎？`)) return;
+  socket.emit('brag', { image, itemId: item.id }, (r) => {
+    if (!r || r.error) showToast((r && r.error) || '炫耀失敗');
+  });
+}
+function showBragIn(d, b) {
+  if (!d || !d.body) return;
+  const box = d.createElement('div');
+  box.className = 'brag-toast';
+  const t1 = d.createElement('span');
+  t1.textContent = `🎉 ${b.name} 擊殺了${b.boss}後，獲得了`;
+  const ic = d.createElement('img');
+  ic.src = `drops/icons/${b.itemId}.png`;
+  ic.alt = '';
+  ic.onerror = () => ic.remove();
+  const nm = d.createElement('b');
+  nm.textContent = b.item;
+  const t2 = d.createElement('span');
+  t2.textContent = '！大家一起恭喜他！';
+  box.append(t1, ic, nm, t2);
+  d.body.appendChild(box);
+  setTimeout(() => box.classList.add('out'), 2700);
+  setTimeout(() => box.remove(), 3000);
+}
+socket.on('brag', (b) => {
+  if (!b || !b.name) return;
+  showBragIn(document, b);
+  const pw = getPipWin();
+  if (pw && pw.document) showBragIn(pw.document, b);
+});
 
 initNickname();
 
@@ -970,6 +1065,7 @@ function renderTabsInto(target, compact) {
 }
 
 addTabBtn.addEventListener('click', () => {
+  if (!isSupporterMe()) { showToast('⭐ 新增自訂王是贊助者專屬功能（當月贊助滿 NT$50 即可使用，詳見「💖 贊助」）'); return; }
   const name = prompt('輸入新分頁名稱：', `分頁 ${tabs.length + 1}`);
   if (name !== null) {
     socket.emit('addTab', name.trim() || undefined);
@@ -1698,6 +1794,7 @@ async function openPip() {
 
   pipDoc = pipWindow.document;
   pipDoc.documentElement.classList.add('is-pip'); // 子母畫面不要套用手機版排版
+  setThemeClass(pipDoc.documentElement, currentTheme());
   pipDoc.title = 'MSCtimer｜楓之谷經典版｜團隊野王計時器';
 
   // 套用跟主頁一樣的樣式表
@@ -2021,7 +2118,18 @@ function renderLootInto(d) {
       minus.textContent = '−';
       minus.title = '記錯了？減少一次';
       minus.addEventListener('click', (e) => { e.stopPropagation(); socket.emit('lootUndo', { image: img, itemId: Number(id) }); });
-      row.appendChild(ic); row.appendChild(nm); row.appendChild(cnt); row.appendChild(minus);
+      row.appendChild(ic); row.appendChild(nm); row.appendChild(cnt);
+      if (isSupporterMe()) {
+        const brag = d.createElement('button');
+        brag.type = 'button';
+        brag.className = 'loot-brag';
+        brag.title = '炫耀：向全站宣布你獲得了這個戰利品（贊助者專屬）';
+        const bi = d.createElement('img'); bi.src = 'images/brag-vip.png'; bi.alt = '炫耀';
+        brag.appendChild(bi);
+        brag.addEventListener('click', (e) => { e.stopPropagation(); bragItem(img, { id: Number(id), name: info ? info.name : id }, d); });
+        row.appendChild(brag);
+      }
+      row.appendChild(minus);
       grp.appendChild(row);
     });
     list.appendChild(grp);
@@ -2311,8 +2419,9 @@ function playBeep(freq) {
 // ---------- 贊助 ----------
 // 收款連結：網址留空 = 還在審核中（按鈕會顯示「審核中」且不能點）
 const DONATE_LINKS = [
-  { name: '歐付寶', icon: '🟢', url: '' },
-  { name: '綠界', icon: '🟩', url: '' },
+  { name: '歐付寶', icon: '🟢', url: 'https://p.opay.tw/SQau5', qr: 'images/opay-qr.png', opayId: '2506114' },
+  // pending: true = 審核中（按鈕灰掉不能按）；綠界審核通過後把這個拿掉就會啟用
+  { name: '綠界', icon: '🟩', url: 'https://p.ecpay.com.tw/060CC2F', qr: 'images/ecpay-qr.png', qrPhone: true, pending: true },
   { name: 'PayPal', label: 'PayPal（海外信用卡）', icon: '💳', url: 'https://www.paypal.com/ncp/payment/LWHNMPF397KA4' }
 ];
 (function setupDonate() {
@@ -2338,6 +2447,45 @@ const DONATE_LINKS = [
   const showErr = (m) => { errEl.textContent = m; errEl.classList.toggle('hidden', !m); };
 
   DONATE_LINKS.forEach((l, i) => {
+    if (l.pending) l = { ...l, url: '', qr: '' }; // 審核中：不提供連結與 QR Code
+    // 掃碼付款（歐付寶 TWQR）：點了展開 QR Code，不另開頁面
+    if (l.qr && !l.url) {
+      const a = document.createElement('button');
+      a.type = 'button';
+      a.className = 'donate-link';
+      a.textContent = `${i + 1}. ${l.icon} ${l.label || l.name}`;
+      const tag = document.createElement('small');
+      tag.textContent = '顯示 QR Code ▾';
+      a.appendChild(tag);
+      const box = document.createElement('div');
+      box.className = 'donate-qr hidden';
+      const img = document.createElement('img');
+      img.alt = `${l.name} 收款 QR Code`;
+      img.loading = 'lazy';
+      const tip = document.createElement('div');
+      tip.className = 'donate-qr-tip';
+      tip.innerHTML = `用 <b>歐付寶、街口、全支付、台灣Pay、悠遊付、iPASS MONEY、icash Pay</b> 等 App 掃描付款（金額請自行輸入）。<br>用手機開網站的話：長按圖片儲存，再到 App 的「掃描」選擇從相簿讀取；或在歐付寶 App 轉帳給 <b>歐付寶 ID：${l.opayId}</b>。`;
+      box.append(img, tip);
+      a.addEventListener('click', () => {
+        showErr('');
+        const open = box.classList.toggle('hidden') === false;
+        tag.textContent = open ? '收起 ▴' : '顯示 QR Code ▾';
+        if (open && !img.src) img.src = l.qr;
+        if (!open) return;
+        const anon = anonIn.checked;
+        const name = anon ? '' : nameIn.value.trim();
+        const amount = amtIn.value.trim();
+        const msg = msgIn.value.trim();
+        if (!anon && !name && !amount && !msg) return; // 什麼都沒填：直接付款（不上榜）
+        if ((!anon && !name) || !(Number(amount) >= 1)) {
+          showErr(anon ? '匿名贊助也請填寫金額，才對得上款項' : '要上贊助榜的話，請填寫暱稱和金額（也可以勾選匿名；不想上榜可以全部留空，直接付款）');
+          return;
+        }
+        submitIntent(l.name, false, true);
+      });
+      linksEl.append(a, box);
+      return;
+    }
     const a = document.createElement(l.url ? 'a' : 'span');
     a.className = 'donate-link' + (l.url ? '' : ' pending');
     if (l.url) { a.href = l.url; a.target = '_blank'; a.rel = 'noopener'; }
@@ -2364,11 +2512,12 @@ const DONATE_LINKS = [
       });
     }
     linksEl.appendChild(a);
+
   });
 
   // 送出「我要贊助」的資料（暱稱／金額／留言）→ 拿到贊助代碼。同一份資料只送一次
   let lastSent = '';
-  function submitIntent(via, quiet) {
+  function submitIntent(via, quiet, isQr) {
     const anon = anonIn.checked;
     const name = anon ? '' : nameIn.value.trim();
     const amount = amtIn.value.trim();
@@ -2380,7 +2529,7 @@ const DONATE_LINKS = [
     const l = { name: via };
         socket.emit('donateIntent', { name, anon, amount: Number(amount), msg, via: l.name }, (r) => {
           if (!r || r.error) { lastSent = ''; showErr((r && r.error) || '送出失敗，請再試一次'); return; }
-          storageSet('msctimer_donate_last', JSON.stringify({ code: r.code, name: anon ? '匿名' : name, amount: Number(amount), t: Date.now() }));
+          storageSet('msctimer_donate_last', JSON.stringify({ code: r.code, name: anon ? '匿名' : name, amount: Number(amount), via: l.name, t: Date.now() }));
           resEl.innerHTML = '';
           const t = document.createElement('div');
           t.append('✅ 已送出！你的贊助代碼：');
@@ -2390,8 +2539,33 @@ const DONATE_LINKS = [
           t.appendChild(b);
           const d = document.createElement('div');
           d.className = 'donate-result-sub';
-          d.textContent = `${quiet ? '請在 PayPal 視窗' : `請在剛打開的 ${l.name} 頁面`}付款 NT$ ${Number(amount).toLocaleString()}，備註欄可以填上代碼「${r.code}」。${l.name === 'PayPal' ? '付款完成後會自動登上贊助榜' : '作者確認後就會登上贊助榜'}，謝謝你 ❤️`;
+          d.textContent = `${isQr ? `請掃描上方的 ${l.name} QR Code ` : quiet ? '請在 PayPal 視窗' : `請在剛打開的 ${l.name} 頁面`}付款 NT$ ${Number(amount).toLocaleString()}，備註欄可以填上代碼「${r.code}」。${l.name === 'PayPal' ? '付款完成後會自動登上贊助榜' : '作者確認後就會登上贊助榜'}，謝謝你 ❤️`;
           resEl.append(t, d);
+          // 有 QR Code 的管道（歐付寶）：填好資料、按「前往付款」之後才提供掃碼付款
+          const ql = DONATE_LINKS.find((x) => x.name === l.name && x.qr);
+          if (ql) {
+            const tg = document.createElement('button');
+            tg.type = 'button';
+            tg.className = 'donate-qr-toggle';
+            const tgLabel = ql.qrPhone ? '📱 想用手機付款？掃 QR Code 在手機上開啟 ▾' : '📱 付款頁打不開？改用 App 掃 QR Code ▾';
+            tg.textContent = tgLabel;
+            const box = document.createElement('div');
+            box.className = 'donate-qr hidden';
+            const img = document.createElement('img');
+            img.alt = `${ql.name} 收款 QR Code`;
+            const tip = document.createElement('div');
+            tip.className = 'donate-qr-tip';
+            tip.innerHTML = ql.qrPhone
+              ? `用手機相機掃描，就會在手機上打開綠界付款頁。付款 <b>NT$ ${Number(amount).toLocaleString()}</b>，備註填代碼「<b>${r.code}</b>」。`
+              : `用 <b>歐付寶、街口、全支付、台灣Pay、悠遊付、iPASS MONEY、icash Pay</b> 等 App 掃描，付款 <b>NT$ ${Number(amount).toLocaleString()}</b>，備註填代碼「<b>${r.code}</b>」。<br>手機上可以長按圖片儲存，再到 App 的「掃描」選擇從相簿讀取。`;
+            box.append(img, tip);
+            tg.addEventListener('click', () => {
+              const open = box.classList.toggle('hidden') === false;
+              tg.textContent = open ? '📱 收起 QR Code ▴' : tgLabel;
+              if (open && !img.src) img.src = ql.qr;
+            });
+            resEl.append(tg, box);
+          }
           resEl.classList.remove('hidden');
         });
     return true;
@@ -2460,10 +2634,12 @@ const DONATE_LINKS = [
   btn.addEventListener('click', open);
   sel.addEventListener('change', () => load(sel.value));
 
-  // 從付款頁自動跳回來（PayPal 的 Auto-return URL 設成 https://網站/?donated=1）
+  // 從付款頁自動跳回來（PayPal 的 Auto-return URL 設成 https://網站/?donated=1；歐付寶「返回商店」設成 https://網站/?donated=opay；綠界設成 ?donated=ecpay）
   try {
     const qs = new URLSearchParams(location.search);
     if (qs.has('donated')) {
+      const retVia = (qs.get('donated') || '').toLowerCase(); // 1 / paypal = PayPal；opay = 歐付寶；ecpay = 綠界
+      const fromOther = /opay|ecpay/.test(retVia);
       qs.delete('donated');
       history.replaceState(null, '', location.pathname + (qs.toString() ? '?' + qs : '') + location.hash);
       let last = null;
@@ -2475,8 +2651,9 @@ const DONATE_LINKS = [
       t.textContent = '🎉 感謝你的贊助！作者收到了會很開心 ❤️';
       const d = document.createElement('div');
       d.className = 'donate-result-sub';
+      const auto = !fromOther && (!last || !last.via || last.via === 'PayPal');
       d.textContent = last
-        ? `你的贊助代碼「${last.code}」（${last.name}，NT$ ${last.amount.toLocaleString()}）。PayPal 確認付款後會自動登上贊助榜（通常幾分鐘內）。`
+        ? `你的贊助代碼「${last.code}」（${last.name}，NT$ ${last.amount.toLocaleString()}）。${auto ? 'PayPal 確認付款後會自動登上贊助榜（通常幾分鐘內）。' : '作者確認收款後就會幫你登上贊助榜。'}`
         : '如果想登上贊助榜，可以把暱稱和付款時間告訴作者，確認後會幫你補登。';
       resEl.append(t, d);
       resEl.classList.remove('hidden');

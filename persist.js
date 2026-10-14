@@ -216,4 +216,33 @@ async function loadGlobalMuted() {
   try { return v ? JSON.parse(v) : null; } catch (e) { return null; }
 }
 
-module.exports = { ENABLED, saveBossRanges, loadBossRanges, saveGlobalMuted, loadGlobalMuted, init, loadAll, markDirty, flush, removeRoom, pushKillPoint, loadKillPoints, clearKillPoints, markLootDirty, loadLootStats, clearLootStats, saveDonations, loadDonations, saveDonatePending, loadDonatePending, GLOBAL_KP_MAX, loadedFromLegacy: false };
+// 暱稱綁定：每個暱稱只屬於第一個使用它的瀏覽器（Hash：小寫暱稱 -> clientId）
+const NICK_OWNERS_KEY = PREFIX + 'nick_owners';
+async function setNickOwner(nick, clientId) {
+  if (!ENABLED) return;
+  await call(['HSET', NICK_OWNERS_KEY, nick, clientId]);
+}
+async function delNickOwner(nick) {
+  if (!ENABLED) return;
+  await call(['HDEL', NICK_OWNERS_KEY, nick]);
+}
+async function loadNickOwners() {
+  if (!ENABLED) return null;
+  const v = await call(['HGETALL', NICK_OWNERS_KEY]);
+  if (!v) return [];
+  if (Array.isArray(v)) { const out = []; for (let i = 0; i + 1 < v.length; i += 2) out.push([v[i], v[i + 1]]); return out; }
+  return Object.entries(v);
+}
+// 贊助者名單：[[小寫暱稱, { name, by, at }], ...]
+const SUPPORTERS_KEY = PREFIX + 'supporters';
+async function saveSupporters(list) {
+  if (!ENABLED) return;
+  await call(['SET', SUPPORTERS_KEY, JSON.stringify(list)]);
+}
+async function loadSupporters() {
+  if (!ENABLED) return null;
+  const v = await call(['GET', SUPPORTERS_KEY]);
+  try { return v ? JSON.parse(v) : null; } catch (e) { return null; }
+}
+
+module.exports = { ENABLED, setNickOwner, delNickOwner, loadNickOwners, saveSupporters, loadSupporters, saveBossRanges, loadBossRanges, saveGlobalMuted, loadGlobalMuted, init, loadAll, markDirty, flush, removeRoom, pushKillPoint, loadKillPoints, clearKillPoints, markLootDirty, loadLootStats, clearLootStats, saveDonations, loadDonations, saveDonatePending, loadDonatePending, GLOBAL_KP_MAX, loadedFromLegacy: false };
