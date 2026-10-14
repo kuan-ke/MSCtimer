@@ -470,15 +470,20 @@ socket.on('perk:denied', (msg) => showToast('⭐ ' + (msg || '贊助者專屬功
 // 炫耀：全站跳出通知 3 秒
 function bragItem(image, item, d) {
   if (!ensureNickname()) return;
-  if (!isSupporterMe()) { showToast('⭐ 炫耀是贊助者專屬功能'); return; }
+  if (!isSupporterMe()) { showToast('⭐ 炫耀是贊助者專屬功能（當月贊助滿 NT$50 即可使用，詳見「💖 贊助」）'); return; }
   const boss = (dropsData && dropsData[image] && dropsData[image].name) || '王';
   if (!((d && d.defaultView) || window).confirm(`要向全站炫耀「擊殺了${boss}後，獲得了 ${item.name}」嗎？`)) return;
   socket.emit('brag', { image, itemId: item.id }, (r) => {
     if (!r || r.error) showToast((r && r.error) || '炫耀失敗');
   });
 }
-function showBragIn(d, b) {
-  if (!d || !d.body) return;
+// 全站炫耀通知：每則顯示 8 秒，同時有很多則就依序排隊播放
+const BRAG_SHOW_MS = 8000;
+const BRAG_QUEUE_MAX = 30;
+const bragQueue = [];
+let bragBusy = false;
+function showBragIn(d, b, left) {
+  if (!d || !d.body) return null;
   const box = d.createElement('div');
   box.className = 'brag-toast';
   const t1 = d.createElement('span');
@@ -492,15 +497,34 @@ function showBragIn(d, b) {
   const t2 = d.createElement('span');
   t2.textContent = '！大家一起恭喜他！';
   box.append(t1, ic, nm, t2);
+  if (left > 0) {
+    const q = d.createElement('small');
+    q.className = 'brag-more';
+    q.textContent = `（後面還有 ${left} 則）`;
+    box.appendChild(q);
+  }
   d.body.appendChild(box);
-  setTimeout(() => box.classList.add('out'), 2700);
-  setTimeout(() => box.remove(), 3000);
+  return box;
+}
+function playNextBrag() {
+  if (bragBusy || !bragQueue.length) return;
+  bragBusy = true;
+  const b = bragQueue.shift();
+  const boxes = [showBragIn(document, b, bragQueue.length)];
+  const pw = getPipWin();
+  if (pw && pw.document) boxes.push(showBragIn(pw.document, b, bragQueue.length));
+  setTimeout(() => boxes.forEach((x) => x && x.classList.add('out')), BRAG_SHOW_MS - 300);
+  setTimeout(() => {
+    boxes.forEach((x) => x && x.remove());
+    bragBusy = false;
+    playNextBrag();
+  }, BRAG_SHOW_MS);
 }
 socket.on('brag', (b) => {
   if (!b || !b.name) return;
-  showBragIn(document, b);
-  const pw = getPipWin();
-  if (pw && pw.document) showBragIn(pw.document, b);
+  if (bragQueue.length >= BRAG_QUEUE_MAX) bragQueue.shift(); // 太多就丟掉最舊的，避免排太久
+  bragQueue.push(b);
+  playNextBrag();
 });
 
 initNickname();
@@ -2119,13 +2143,12 @@ function renderLootInto(d) {
       minus.title = '記錯了？減少一次';
       minus.addEventListener('click', (e) => { e.stopPropagation(); socket.emit('lootUndo', { image: img, itemId: Number(id) }); });
       row.appendChild(ic); row.appendChild(nm); row.appendChild(cnt);
-      if (isSupporterMe()) {
+      {
         const brag = d.createElement('button');
         brag.type = 'button';
-        brag.className = 'loot-brag';
-        brag.title = '炫耀：向全站宣布你獲得了這個戰利品（贊助者專屬）';
-        const bi = d.createElement('img'); bi.src = 'images/brag-vip.png'; bi.alt = '炫耀';
-        brag.appendChild(bi);
+        brag.className = 'loot-brag' + (isSupporterMe() ? '' : ' locked');
+        brag.title = isSupporterMe() ? '炫耀：向全站宣布你獲得了這個戰利品（贊助者專屬）' : '⭐ 炫耀是贊助者專屬功能（當月贊助滿 NT$50 即可使用）';
+        brag.textContent = '📣';
         brag.addEventListener('click', (e) => { e.stopPropagation(); bragItem(img, { id: Number(id), name: info ? info.name : id }, d); });
         row.appendChild(brag);
       }

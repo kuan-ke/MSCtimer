@@ -1255,8 +1255,10 @@ button.donate-link { width: 100%; font: inherit; font-weight: 700; cursor: point
 /* ---------- 贊助者專屬：鎖住的功能、炫耀 ---------- */
 .add-tab-btn.perk-locked { opacity: .55; position: relative; }
 .add-tab-btn.perk-locked::after { content: '⭐'; position: absolute; top: -6px; right: -6px; font-size: 12px; }
-.loot-brag { border: 1px solid #e879f9; background: rgba(112, 26, 117, .35); border-radius: 5px; height: 22px; padding: 0 3px; cursor: pointer; display: inline-flex; align-items: center; }
+.loot-brag { border: 1px solid #e879f9; background: rgba(112, 26, 117, .35); border-radius: 5px; height: 22px; padding: 0 4px; cursor: pointer; display: inline-flex; align-items: center; font-size: 13px; line-height: 1; }
 .loot-brag img { height: 17px; width: auto; display: block; }
+.loot-brag.locked { opacity: .45; filter: grayscale(1); border-color: #64748b; background: transparent; }
+.loot-brag.locked:hover { opacity: .7; box-shadow: none; background: transparent; }
 .loot-brag:hover { background: #701a75; box-shadow: 0 0 6px rgba(232, 121, 249, .7); }
 .theme-pop { min-width: 170px; gap: 4px; }
 .theme-opt { display: flex; align-items: center; gap: 8px; width: 100%; border: 1px solid transparent; background: transparent; color: var(--text); font-size: 13px; padding: 6px 8px; border-radius: 6px; cursor: pointer; text-align: left; }
@@ -1282,6 +1284,7 @@ button.donate-link { width: 100%; font: inherit; font-weight: 700; cursor: point
 }
 .brag-toast img { width: 32px; height: 32px; object-fit: contain; image-rendering: pixelated; background: rgba(255,255,255,.12); border-radius: 6px; padding: 2px; }
 .brag-toast b { color: #fde68a; font-size: 19px; }
+.brag-more { width: 100%; font-size: 12px; font-weight: 600; color: #f5d0fe; }
 .brag-toast.out { opacity: 0; transform: translateX(-50%) translateY(-10px); }
 @keyframes bragIn { from { opacity: 0; transform: translateX(-50%) translateY(-16px) scale(.92); } to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); } }
 .is-pip .brag-toast { font-size: 13px; padding: 8px 12px; top: 8px; }
