@@ -474,7 +474,8 @@ function bragItem(image, item, d) {
   const boss = (dropsData && dropsData[image] && dropsData[image].name) || '王';
   if (!((d && d.defaultView) || window).confirm(`要向全站炫耀「擊殺了${boss}後，獲得了 ${item.name}」嗎？`)) return;
   socket.emit('brag', { image, itemId: item.id }, (r) => {
-    if (!r || r.error) showToast((r && r.error) || '炫耀失敗');
+    if (!r || r.error) { showToast((r && r.error) || '炫耀失敗'); return; }
+    if (typeof r.left === 'number') showToast(`📣 已炫耀！今天還可以炫耀 ${r.left} 次`);
   });
 }
 // 全站炫耀通知：每則顯示 8 秒，同時有很多則就依序排隊播放

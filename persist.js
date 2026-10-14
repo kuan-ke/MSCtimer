@@ -258,4 +258,16 @@ async function loadAnnouncement() {
   try { return v ? JSON.parse(v) : null; } catch (e) { return null; }
 }
 
-module.exports = { ENABLED, saveAnnouncement, loadAnnouncement, setNickOwner, delNickOwner, loadNickOwners, saveSupporters, loadSupporters, saveBossRanges, loadBossRanges, saveGlobalMuted, loadGlobalMuted, init, loadAll, markDirty, flush, removeRoom, pushKillPoint, loadKillPoints, clearKillPoints, markLootDirty, loadLootStats, clearLootStats, saveDonations, loadDonations, saveDonatePending, loadDonatePending, GLOBAL_KP_MAX, loadedFromLegacy: false };
+// 炫耀次數（每天、每個暱稱）：{ day: 'YYYY-MM-DD', counts: { 小寫暱稱: 次數 } }
+const BRAG_DAILY_KEY = PREFIX + 'brag_daily';
+async function saveBragDaily(v) {
+  if (!ENABLED) return;
+  await call(['SET', BRAG_DAILY_KEY, JSON.stringify(v)]);
+}
+async function loadBragDaily() {
+  if (!ENABLED) return null;
+  const v = await call(['GET', BRAG_DAILY_KEY]);
+  try { return v ? JSON.parse(v) : null; } catch (e) { return null; }
+}
+
+module.exports = { ENABLED, saveBragDaily, loadBragDaily, saveAnnouncement, loadAnnouncement, setNickOwner, delNickOwner, loadNickOwners, saveSupporters, loadSupporters, saveBossRanges, loadBossRanges, saveGlobalMuted, loadGlobalMuted, init, loadAll, markDirty, flush, removeRoom, pushKillPoint, loadKillPoints, clearKillPoints, markLootDirty, loadLootStats, clearLootStats, saveDonations, loadDonations, saveDonatePending, loadDonatePending, GLOBAL_KP_MAX, loadedFromLegacy: false };

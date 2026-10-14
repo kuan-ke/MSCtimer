@@ -533,6 +533,22 @@ let DROPS = {};
 try { DROPS = JSON.parse(fs.readFileSync(path.join(__dirname, 'public', 'drops', 'drops.json'), 'utf8')); } catch (e) { console.error('[戰利品] 讀不到 drops.json：', e.message); }
 const BRAG_COOLDOWN_MS = 30000; // 同一個人 30 秒內只能炫耀一次
 const bragLast = new Map();
+// 每個暱稱每天（台灣時間）最多炫耀 5 次；一件戰利品只能炫耀一次（本房間記錄了幾個，就最多炫耀幾次）
+const BRAG_DAILY_MAX = 5;
+let bragDaily = { day: '', counts: {} };
+function twDay(t) { return new Date(t + 8 * 3600000).toISOString().slice(0, 10); }
+function bragUsedToday(name) {
+  const d = twDay(Date.now());
+  if (bragDaily.day !== d) bragDaily = { day: d, counts: {} };
+  return bragDaily.counts[normalizeName(name)] || 0;
+}
+function bragAddToday(name) {
+  bragUsedToday(name);
+  const n = normalizeName(name);
+  bragDaily.counts[n] = (bragDaily.counts[n] || 0) + 1;
+  persist.saveBragDaily(bragDaily).catch((e) => console.error('[炫耀] 儲存失敗：', e.message));
+  return bragDaily.counts[n];
+}
 const DROP_ITEMS = {};
 Object.entries(DROPS).forEach(([img, b]) => { DROP_ITEMS[img] = new Map((b.drops || []).map((d) => [d.id, d.name])); });
 const LOOT_MIN_KILLS = 10; // 房間這隻王擊殺達 10 次以上，才算進全站戰利品統計
@@ -1409,6 +1425,7 @@ io.on('connection', (socket) => {
     if (!canTransferTimers(room)) return reply({ error: '只有隊長可以清空戰利品紀錄' });
     const imgs = Object.keys(room.loot || {});
     room.loot = {};
+    room.bragged = {}; // 戰利品清空了，炫耀紀錄也一起歸零
     persist.markDirty(room);
     io.to(VIEW(room.id)).emit('loot:init', {});
     if (!socket.data.isAdmin) addLog(room, `${socket.data.nickname} 清空了戰利品紀錄`, 'user');
@@ -1643,14 +1660,25 @@ io.on('connection', (socket) => {
     const items = DROP_ITEMS[image];
     const id = Number(itemId);
     if (!items || !items.has(id)) return reply({ error: '找不到這個戰利品' });
+    // 一件戰利品只能炫耀一次：本房間記錄到幾個，就最多炫耀幾次
+    const recorded = (room.loot && room.loot[image] && room.loot[image][id]) || 0;
+    if (!recorded) return reply({ error: '要先在「📦 戰利品」記錄這個戰利品，才能炫耀' });
+    if (!room.bragged) room.bragged = {};
+    const done = (room.bragged[image] && room.bragged[image][id]) || 0;
+    if (done >= recorded) return reply({ error: recorded > 1 ? `這件戰利品已經炫耀過了（本房間記錄 ${recorded} 個，已炫耀 ${done} 次）` : '這件戰利品已經炫耀過了，一件只能炫耀一次' });
+    if (!socket.data.isAdmin && bragUsedToday(socket.data.nickname) >= BRAG_DAILY_MAX) return reply({ error: `今天的炫耀次數已經用完了（每天 ${BRAG_DAILY_MAX} 次），明天再來吧！` });
     const key = socket.data.clientId || socket.id;
     const now = Date.now();
     const last = bragLast.get(key) || 0;
     if (now - last < BRAG_COOLDOWN_MS) return reply({ error: `炫耀太頻繁了，請 ${Math.ceil((BRAG_COOLDOWN_MS - (now - last)) / 1000)} 秒後再試` });
     bragLast.set(key, now);
+    room.bragged[image] = room.bragged[image] || {};
+    room.bragged[image][id] = done + 1;
+    persist.markDirty(room);
+    const used = socket.data.isAdmin ? 0 : bragAddToday(socket.data.nickname);
     const boss = (DROPS[image] && DROPS[image].name) || (BOSS_PRESETS.find((b) => b.image === image) || {}).name || '王';
     io.emit('brag', { name: socket.data.nickname, boss, item: items.get(id), itemId: id, at: now });
-    reply({ ok: true });
+    reply({ ok: true, left: socket.data.isAdmin ? null : Math.max(0, BRAG_DAILY_MAX - used) });
   });
 
   socket.on('adminDonateAdd', ({ name, amount, msg, at, via, anon } = {}, cb) => {
@@ -1985,6 +2013,7 @@ function serializeRoom(room) {
     log: room.activityLog.slice(0, SAVED_LOG_LIMIT),
     kp: room.killPoints,
     loot: room.loot || {},
+    bragged: room.bragged || {},
     // CH 只存非待機的（大部分是待機），讓資料很小
     tabs: room.tabs.map((t) => {
       const ch = {};
@@ -2008,6 +2037,7 @@ function restoreRoom(data) {
   room.activityLog = Array.isArray(data.log) ? data.log : [];
   room.killPoints = Array.isArray(data.kp) ? data.kp.slice(0, MAX_KILL_POINTS) : [];
   room.loot = data.loot && typeof data.loot === 'object' ? data.loot : {};
+  room.bragged = data.bragged && typeof data.bragged === 'object' ? data.bragged : {};
 
   const savedTabs = Array.isArray(data.tabs) ? data.tabs : [];
   const fillChannels = (tab, saved) => {
@@ -2061,6 +2091,12 @@ async function start() {
       if (Object.keys(bossRanges).length) console.log(`[保存] 已讀回 ${Object.keys(bossRanges).length} 隻王的自訂時間`);
     } catch (e) {
       console.error('[保存] 讀取王時間失敗：', e.message);
+    }
+    try {
+      const bd = await persist.loadBragDaily();
+      if (bd && bd.day && bd.counts) bragDaily = bd;
+    } catch (e) {
+      console.error('[保存] 讀取炫耀次數失敗：', e.message);
     }
     try {
       announcement = (await persist.loadAnnouncement()) || null;
