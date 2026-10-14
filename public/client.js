@@ -2445,7 +2445,8 @@ const DONATE_LINKS = [
   { name: '歐付寶', icon: '🟢', url: 'https://p.opay.tw/SQau5', qr: 'images/opay-qr.png', opayId: '2506114' },
   // pending: true = 審核中（按鈕灰掉不能按）；綠界審核通過後把這個拿掉就會啟用
   { name: '綠界', icon: '🟩', url: 'https://p.ecpay.com.tw/060CC2F', qr: 'images/ecpay-qr.png', qrPhone: true, pending: true },
-  { name: 'PayPal', label: 'PayPal（海外信用卡）', icon: '💳', url: 'https://www.paypal.com/ncp/payment/LWHNMPF397KA4' }
+  // PayPal 暫時停用（目前沒有海外贊助）。要恢復的話把下一行最前面的 // 拿掉
+  // { name: 'PayPal', label: 'PayPal（海外信用卡）', icon: '💳', url: 'https://www.paypal.com/ncp/payment/LWHNMPF397KA4' }
 ];
 (function setupDonate() {
   const overlay = document.getElementById('donateOverlay');
@@ -2674,7 +2675,7 @@ const DONATE_LINKS = [
       t.textContent = '🎉 感謝你的贊助！作者收到了會很開心 ❤️';
       const d = document.createElement('div');
       d.className = 'donate-result-sub';
-      const auto = !fromOther && (!last || !last.via || last.via === 'PayPal');
+      const auto = !fromOther && !!last && last.via === 'PayPal';
       d.textContent = last
         ? `你的贊助代碼「${last.code}」（${last.name}，NT$ ${last.amount.toLocaleString()}）。${auto ? 'PayPal 確認付款後會自動登上贊助榜（通常幾分鐘內）。' : '作者確認收款後就會幫你登上贊助榜。'}`
         : '如果想登上贊助榜，可以把暱稱和付款時間告訴作者，確認後會幫你補登。';
