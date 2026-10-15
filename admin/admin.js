@@ -40,6 +40,15 @@
 .admin-stats-btn { border:1px solid #6d28d9; background:#2e1065; color:#ede9fe; border-radius:6px; padding:2px 8px; font-size:12px; font-weight:700; cursor:pointer; }
 .admin-stats-btn:hover { background:#4c1d95; }
 .kps-overlay { position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:1000; display:flex; align-items:center; justify-content:center; padding:16px; }
+.kpc-wrap { margin:4px 0 14px; padding:10px 12px; border:1px solid #334155; border-radius:10px; background:#0f172a; }
+.kpc-title { font-weight:700; font-size:14px; margin-bottom:8px; }
+.kpc-chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
+.kpc-chip { border:1px solid #475569; background:#1e293b; color:#cbd5e1; border-radius:999px; padding:3px 10px; font-size:12px; cursor:pointer; }
+.kpc-chip.active { background:#2563eb; border-color:#60a5fa; color:#fff; font-weight:700; }
+.kpc-legend { display:flex; flex-wrap:wrap; gap:12px; font-size:12px; color:#cbd5e1; margin-bottom:4px; }
+.kpc-leg { display:inline-flex; align-items:center; gap:5px; }
+.kpc-leg i { display:inline-block; width:12px; height:10px; border-radius:3px; }
+.kpc-svg { width:100%; height:auto; display:block; }
 .kps-box { background:#0b1222; border:1px solid #6d28d9; border-radius:10px; width:min(820px,100%); max-height:90vh; display:flex; flex-direction:column; color:var(--text); box-shadow:0 12px 40px rgba(0,0,0,.6); }
 .kps-head { display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid #334155; flex-wrap:wrap; }
 .kps-head h3 { margin:0; font-size:15px; color:#ddd6fe; margin-right:auto; }
@@ -887,10 +896,90 @@
         table.appendChild(tr);
       });
       body.appendChild(table);
+      if (st.bosses.length) body.insertBefore(buildKpCharts(st.bosses), table);
       box.appendChild(body);
       kpsOverlay.appendChild(box);
       document.body.appendChild(kpsOverlay);
     });
+  }
+
+  // ---------- 時間點分布曲線圖 ----------
+  // 橫軸：重生後第幾分鐘被擊殺（四捨五入到整分鐘，±30 秒，和區間判斷一致）；縱軸：筆數
+  // 長條顏色：5 的倍數（五分區間）、4 的倍數（四分區間）、兩者皆是、其他；再疊一條平滑曲線看整體走勢
+  const KP_COLORS = { five: '#4ade80', four: '#fbbf24', both: '#22d3ee', none: '#64748b', line: '#e2e8f0' };
+  function kpKind(m) { const f = m % 5 === 0, g = m % 4 === 0; return f && g ? 'both' : f ? 'five' : g ? 'four' : 'none'; }
+  let kpChartSel = null;
+  function buildKpCharts(bosses) {
+    const wrap = el('div', 'kpc-wrap');
+    const chips = el('div', 'kpc-chips');
+    const area = el('div', 'kpc-area');
+    const list = bosses.filter((b) => b.near && Object.keys(b.near).length);
+    if (!list.length) { wrap.appendChild(el('div', 'kps-summary', '還沒有可以畫圖的紀錄')); return wrap; }
+    if (!kpChartSel || !list.some((b) => b.name === kpChartSel)) kpChartSel = list.slice().sort((a, b) => b.n - a.n)[0].name;
+    const draw = () => {
+      chips.querySelectorAll('button').forEach((c) => c.classList.toggle('active', c.dataset.name === kpChartSel));
+      area.innerHTML = '';
+      area.appendChild(kpChartSvg(list.find((b) => b.name === kpChartSel)));
+    };
+    list.forEach((b) => {
+      const c = el('button', 'kpc-chip', `${b.name}（${b.n}）`);
+      c.type = 'button'; c.dataset.name = b.name;
+      c.addEventListener('click', () => { kpChartSel = b.name; draw(); });
+      chips.appendChild(c);
+    });
+    const legend = el('div', 'kpc-legend');
+    [['five', '5 的倍數（五分區間）'], ['four', '4 的倍數（四分區間）'], ['both', '兩者皆是（如 0、20 分）'], ['none', '其他'], ['line', '平滑曲線（走勢）']].forEach(([k, t]) => {
+      const it = el('span', 'kpc-leg');
+      const sw = el('i'); sw.style.background = KP_COLORS[k]; if (k === 'line') { sw.style.height = '2px'; sw.style.borderRadius = '1px'; }
+      it.append(sw, document.createTextNode(t));
+      legend.appendChild(it);
+    });
+    wrap.append(el('div', 'kpc-title', '📈 時間點分布（重生後第幾分鐘被擊殺）'), chips, legend, area);
+    draw();
+    return wrap;
+  }
+  function kpChartSvg(b) {
+    const NS = 'http://www.w3.org/2000/svg';
+    const mk = (tag, attrs) => { const e = document.createElementNS(NS, tag); Object.entries(attrs || {}).forEach(([k, v]) => e.setAttribute(k, v)); return e; };
+    const ms = Object.keys(b.near).map(Number);
+    const maxM = Math.max(10, ...ms);
+    const xMax = Math.ceil((maxM + 1) / 5) * 5;
+    const counts = Array.from({ length: xMax + 1 }, (_, i) => b.near[i] || 0);
+    const yMaxRaw = Math.max(1, ...counts);
+    const step = yMaxRaw <= 5 ? 1 : yMaxRaw <= 10 ? 2 : Math.ceil(yMaxRaw / 5);
+    const yMax = Math.ceil(yMaxRaw / step) * step;
+    const W = 860, H = 260, L = 36, R = 12, T = 14, B = 34;
+    const pw = W - L - R, ph = H - T - B;
+    const bw = pw / (xMax + 1);
+    const x = (m) => L + m * bw;
+    const y = (v) => T + ph - (v / yMax) * ph;
+    const svg = mk('svg', { viewBox: `0 0 ${W} ${H}`, class: 'kpc-svg', role: 'img', 'aria-label': `${b.name} 時間點分布` });
+    // 格線與 y 軸刻度
+    for (let v = 0; v <= yMax; v += step) {
+      svg.appendChild(mk('line', { x1: L, x2: W - R, y1: y(v), y2: y(v), stroke: '#334155', 'stroke-width': v === 0 ? 1.2 : 0.6 }));
+      const t = mk('text', { x: L - 6, y: y(v) + 4, 'text-anchor': 'end', fill: '#94a3b8', 'font-size': 11 }); t.textContent = v; svg.appendChild(t);
+    }
+    // x 軸刻度（每 5 分鐘）
+    for (let m = 0; m <= xMax; m += 5) {
+      const t = mk('text', { x: x(m) + bw / 2, y: H - B + 16, 'text-anchor': 'middle', fill: '#94a3b8', 'font-size': 11 }); t.textContent = m; svg.appendChild(t);
+    }
+    const xl = mk('text', { x: L + pw / 2, y: H - 4, 'text-anchor': 'middle', fill: '#64748b', 'font-size': 11 }); xl.textContent = '重生後第幾分鐘'; svg.appendChild(xl);
+    // 長條
+    counts.forEach((c, m) => {
+      if (!c) return;
+      const gap = Math.min(2, bw * 0.2);
+      const r = mk('rect', { x: x(m) + gap / 2, y: y(c), width: Math.max(1, bw - gap), height: Math.max(1, y(0) - y(c)), rx: Math.min(3, bw / 4), fill: KP_COLORS[kpKind(m)] });
+      const tt = mk('title'); tt.textContent = `第 ${m} 分鐘（±30 秒）：${c} 筆`; r.appendChild(tt);
+      svg.appendChild(r);
+      if (c === yMaxRaw) { const lb = mk('text', { x: x(m) + bw / 2, y: y(c) - 4, 'text-anchor': 'middle', fill: '#e2e8f0', 'font-size': 11, 'font-weight': 700 }); lb.textContent = c; svg.appendChild(lb); }
+    });
+    // 平滑曲線（高斯平滑，σ = 1 分鐘）
+    const sm = counts.map((_, i) => { let s = 0, w = 0; for (let k = -3; k <= 3; k++) { const j = i + k; if (j < 0 || j > xMax) continue; const g = Math.exp(-(k * k) / 2); s += g * counts[j]; w += g; } return s / w; });
+    const pts = sm.map((v, i) => [x(i) + bw / 2, y(v)]);
+    let d = `M${pts[0][0]},${pts[0][1]}`;
+    for (let i = 1; i < pts.length; i++) { const [x0, y0] = pts[i - 1]; const [x1, y1] = pts[i]; const cx = (x0 + x1) / 2; d += ` C${cx},${y0} ${cx},${y1} ${x1},${y1}`; }
+    svg.appendChild(mk('path', { d, fill: 'none', stroke: KP_COLORS.line, 'stroke-width': 2, 'stroke-linejoin': 'round', opacity: 0.85 }));
+    return svg;
   }
   // ---------- 全站戰利品統計 ----------
   function openLootStats() {

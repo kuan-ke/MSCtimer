@@ -852,7 +852,7 @@ function kpStats() {
   const total = { five: 0, four: 0, both: 0, none: 0, early: 0, n: 0 };
   globalKillPoints.forEach((k) => {
     const key = k.i || k.b;
-    if (!byBoss.has(key)) byBoss.set(key, { name: k.b, five: 0, four: 0, both: 0, none: 0, early: 0, n: 0, minutes: {} });
+    if (!byBoss.has(key)) byBoss.set(key, { name: k.b, five: 0, four: 0, both: 0, none: 0, early: 0, n: 0, minutes: {}, near: {} });
     const b = byBoss.get(key);
     b.name = k.b; // 用最新的王名
     const c = kpClass(k.m);
@@ -862,6 +862,8 @@ function kpStats() {
     if (c === 'four' || c === 'both') { b.four++; total.four++; }
     if (c === 'none' || c === 'early') { b[c]++; total[c]++; }
     if (k.m >= 0) { const mi = Math.floor(k.m / 60000); b.minutes[mi] = (b.minutes[mi] || 0) + 1; }
+    // 分布曲線用：四捨五入到最近的整分鐘（±30 秒），跟五分 / 四分區間的判斷一致
+    if (k.m >= -30000) { const mr = Math.max(0, Math.round(k.m / 60000)); b.near[mr] = (b.near[mr] || 0) + 1; }
     rooms.add(k.r);
   });
   return {
