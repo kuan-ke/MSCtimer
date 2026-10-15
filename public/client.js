@@ -2478,8 +2478,8 @@ function playBeep(freq) {
 // 收款連結：網址留空 = 還在審核中（按鈕會顯示「審核中」且不能點）
 const DONATE_LINKS = [
   { name: '歐付寶', icon: '🟢', url: 'https://p.opay.tw/SQau5', qr: 'images/opay-qr.png', opayId: '2506114' },
-  // pending: true = 審核中（按鈕灰掉不能按）；綠界審核通過後把這個拿掉就會啟用
-  { name: '綠界', icon: '🟩', url: 'https://p.ecpay.com.tw/060CC2F', qr: 'images/ecpay-qr.png', qrPhone: true, pending: true },
+  // 加上 pending: true 會變成「審核中」（按鈕灰掉不能按）
+  { name: '綠界', icon: '🟩', url: 'https://p.ecpay.com.tw/060CC2F', qr: 'images/ecpay-qr.png', qrPhone: true },
   // PayPal 暫時停用（目前沒有海外贊助）。要恢復的話把下一行最前面的 // 拿掉
   // { name: 'PayPal', label: 'PayPal（海外信用卡）', icon: '💳', url: 'https://www.paypal.com/ncp/payment/LWHNMPF397KA4' }
 ];
