@@ -203,7 +203,7 @@ const BOSS_PRESETS = [
   { name: '沼澤巨鱷',   min: 45,  max: 45,  image: 'swamp-crocodile.png' },
   { name: '巴洛古',     min: 240, max: 360, image: 'barogu.png' },
   { name: '艾利傑',       min: 45, max: 45,  image: 'elliget.png' },
-  { name: '雪毛怪人(beta)', min: 60,  max: 90,  image: 'snow-fur-monster.png' }
+  { name: '雪毛怪人',     min: 60,  max: 90,  image: 'snow-fur-monster.png' }
 ];
 
 // 程式內建的時間（管理者按「還原預設」時用）

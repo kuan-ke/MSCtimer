@@ -1287,9 +1287,13 @@ button.donate-link { width: 100%; font: inherit; font-weight: 700; cursor: point
 .brag-more { width: 100%; font-size: 12px; font-weight: 600; color: #f5d0fe; }
 .brag-toast.out { opacity: 0; transform: translateX(-50%) translateY(-10px); }
 @keyframes bragIn { from { opacity: 0; transform: translateX(-50%) translateY(-16px) scale(.92); } to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); } }
-.is-pip .brag-toast { font-size: 13px; padding: 8px 12px; top: 8px; }
-.is-pip .brag-toast b { font-size: 14px; }
-.is-pip .brag-toast img { width: 22px; height: 22px; }
+/* 子母畫面：壓成一行、只蓋在上方王的標籤列，不擋到頻道 */
+.is-pip .brag-toast { font-size: 12px; padding: 0 10px; top: 4px; gap: 4px; flex-wrap: nowrap; white-space: nowrap; overflow: hidden;
+  max-width: calc(100vw - 12px); border-radius: 10px; border-width: 1px; box-sizing: border-box; }
+.is-pip .brag-toast > span, .is-pip .brag-toast > b { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.is-pip .brag-toast b { font-size: 13px; flex-shrink: 0; }
+.is-pip .brag-toast img { width: 20px; height: 20px; padding: 1px; flex-shrink: 0; }
+.is-pip .brag-more { width: auto; flex-shrink: 0; font-size: 11px; }
 
 /* ---------- 霓虹介面（贊助者專屬，html.theme-neon） ---------- */
 html.theme-neon {

@@ -400,11 +400,12 @@ socket.on('muted:state', ({ muted, by } = {}) => {
 });
 socket.on('error:toast', (msg) => showToast(msg));
 
-function showToast(msg) {
-  const t = document.createElement('div');
+function showToast(msg, d) {
+  const doc = (d && d.body) ? d : document; // 從子母畫面操作時，提示也顯示在子母畫面裡
+  const t = doc.createElement('div');
   t.className = 'toast';
   t.textContent = msg;
-  document.body.appendChild(t);
+  doc.body.appendChild(t);
   setTimeout(() => t.remove(), 2500);
 }
 
@@ -467,15 +468,16 @@ socket.on('perk:denied', (msg) => showToast('⭐ ' + (msg || '贊助者專屬功
   applyTheme();
 })();
 
-// 炫耀：全站跳出通知 3 秒
+// 炫耀：全站跳出通知（主畫面與子母畫面都能用）
 function bragItem(image, item, d) {
   if (!ensureNickname()) return;
-  if (!isSupporterMe()) { showToast('⭐ 炫耀是贊助者專屬功能（當月贊助滿 NT$50 即可使用，詳見「💖 贊助」）'); return; }
+  const toast = (m) => { showToast(m, d); if (d && d !== document) showToast(m); };
+  if (!isSupporterMe()) { showToast('⭐ 炫耀是贊助者專屬功能（當月贊助滿 NT$50 即可使用，詳見「💖 贊助」）', d); return; }
   const boss = (dropsData && dropsData[image] && dropsData[image].name) || '王';
   if (!((d && d.defaultView) || window).confirm(`要向全站炫耀「擊殺了${boss}後，獲得了 ${item.name}」嗎？`)) return;
   socket.emit('brag', { image, itemId: item.id }, (r) => {
-    if (!r || r.error) { showToast((r && r.error) || '炫耀失敗'); return; }
-    if (typeof r.left === 'number') showToast(`📣 已炫耀！今天還可以炫耀 ${r.left} 次`);
+    if (!r || r.error) { toast((r && r.error) || '炫耀失敗'); return; }
+    if (typeof r.left === 'number') toast(`📣 已炫耀！今天還可以炫耀 ${r.left} 次`);
   });
 }
 // 全站炫耀通知：每則顯示 8 秒，同時有很多則就依序排隊播放
@@ -505,6 +507,13 @@ function showBragIn(d, b, left) {
     box.appendChild(q);
   }
   d.body.appendChild(box);
+  // 子母畫面：高度對齊上方王的標籤列，只蓋住標籤、不擋到頻道
+  if (d.documentElement.classList.contains('is-pip')) {
+    const row = d.querySelector('.tabs-row');
+    const r = row && row.getBoundingClientRect();
+    if (r && r.height > 0) { box.style.top = r.top + 'px'; box.style.height = Math.max(26, r.height) + 'px'; }
+    else box.style.height = '34px';
+  }
   return box;
 }
 function playNextBrag() {
@@ -1187,7 +1196,7 @@ let dropsFilter = '全部';
 let dropsCurrent = null;
 function loadDrops() {
   if (dropsData) return Promise.resolve(dropsData);
-  return fetch('drops/drops.json').then((r) => r.json()).then((d) => { dropsData = d; return d; });
+  return fetch('drops/drops.json', { cache: 'no-cache' }).then((r) => r.json()).then((d) => { dropsData = d; return d; });
 }
 function openDrops() {
   const tab = getCurrentTab();
