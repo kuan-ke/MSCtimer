@@ -157,7 +157,7 @@ app.use((req, res, next) => {
       gzCache.set(file, c);
     }
     // 帶 ?v=版本 的 client.js / style.css 內容不會變，可以放心長期快取；其他文字檔每次先問一下有沒有更新（沒更新只回 304，幾乎不耗流量）
-    res.set('Cache-Control', req.query.v ? 'public, max-age=31536000, immutable' : (ext === '.json' ? 'public, max-age=86400' : 'no-cache'));
+    res.set('Cache-Control', req.query.v ? 'public, max-age=31536000, immutable' : 'no-cache');
     res.set('ETag', c.etag);
     res.type(type);
     if (req.headers['if-none-match'] === c.etag) return res.status(304).end();

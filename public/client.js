@@ -2474,6 +2474,29 @@ function playBeep(freq) {
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !overlay.classList.contains('hidden')) close(); });
 })();
 
+// ---------- 更新日誌（有新的一筆時，按鈕上顯示小紅點，打開看過就消失） ----------
+(function setupChangelog() {
+  const overlay = document.getElementById('changelogOverlay');
+  const btn = document.getElementById('changelogBtn');
+  const dot = document.getElementById('changelogDot');
+  if (!overlay || !btn) return;
+  const first = overlay.querySelector('.cl-entry');
+  const latest = first ? first.dataset.id : '';
+  const KEY = 'msctimer_changelog_seen';
+  if (dot && latest && storageGet(KEY) !== latest) dot.classList.remove('hidden');
+  const open = () => {
+    overlay.classList.remove('hidden');
+    document.getElementById('changelogBody').scrollTop = 0;
+    if (latest) storageSet(KEY, latest);
+    if (dot) dot.classList.add('hidden');
+  };
+  const close = () => overlay.classList.add('hidden');
+  btn.addEventListener('click', open);
+  document.getElementById('changelogCloseBtn').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !overlay.classList.contains('hidden')) close(); });
+})();
+
 // ---------- 贊助 ----------
 // 收款連結：網址留空 = 還在審核中（按鈕會顯示「審核中」且不能點）
 const DONATE_LINKS = [

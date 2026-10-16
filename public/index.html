@@ -38,6 +38,7 @@
       <span id="siteOnline" class="site-online hidden" title="目前整個網站在線上的人數（所有房間加總，同一個瀏覽器開多個分頁只算一人）">🌐<span class="so-label"> 全站</span> <b id="siteOnlineCount">0</b><span class="so-label"> 人在線</span></span>
     </div>
     <div class="top-bar-right">
+      <button id="changelogBtn" class="top-btn changelog-btn" title="網站更新日誌">📝<span class="btn-label"> 更新日誌</span><span id="changelogDot" class="changelog-dot hidden"></span></button>
       <button id="importBtn" class="top-btn" title="匯入本網站匯出的計時（只有隊長可以使用）">📥<span class="btn-label"> 匯入</span></button>
       <button id="exportBtn" class="top-btn" title="匯出目前房間的計時：密鑰（可匯入）或文字時間表（只有隊長可以使用）">📋<span class="btn-label"> 匯出</span></button>
       <div class="sound-wrap">
@@ -225,6 +226,27 @@
 </div>
 
 <!-- 使用指南 -->
+<!-- 更新日誌：新的一筆加在最上面，data-id 每次換一個（用日期即可），有新的會在按鈕上顯示小紅點 -->
+<div id="changelogOverlay" class="modal-overlay hidden">
+  <div class="modal guide-modal" role="dialog" aria-labelledby="changelogTitle">
+    <div class="guide-head">
+      <h3 id="changelogTitle">📝 更新日誌</h3>
+      <button type="button" id="changelogCloseBtn" class="btn-secondary">關閉</button>
+    </div>
+    <div class="guide-body changelog-body" id="changelogBody">
+      <section class="cl-entry" data-id="2026-10-17">
+        <h4>2026/10/17</h4>
+        <ul>
+          <li>依 10/15 改版的遊戲資料更新王的戰利品，新增 5 項掉落物：巨居蟹「藍色海豹抱枕椅」、蘑菇王「火炎膠囊」、殭屍蘑菇王「寒冰膠囊」、艾利傑「黑暗母礦」、雪毛怪人「敏捷母礦」。</li>
+          <li>艾利傑的出沒地圖更新為「天空之城：天空階梯 II」；雪毛怪人的地圖補上地區名稱。</li>
+          <li>修正：網站資料更新後，瀏覽器有時還是顯示舊的戰利品資料。</li>
+          <li>新增「📝 更新日誌」，之後每次更新都會寫在這裡。</li>
+        </ul>
+      </section>
+    </div>
+  </div>
+</div>
+
 <div id="guideOverlay" class="modal-overlay hidden">
   <div class="modal guide-modal" role="dialog" aria-labelledby="guideTitle">
     <div class="guide-head">

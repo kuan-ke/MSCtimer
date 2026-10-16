@@ -1424,3 +1424,12 @@ html.theme-snow .modal { border-color: #9cc3e4; box-shadow: 0 0 22px rgba(186, 2
 .announce-close:hover { background: rgba(245, 158, 11, .25); }
 html.theme-neon .announce-bar { border-color: #e879f9; background: linear-gradient(90deg, rgba(112, 26, 117, .55), rgba(18, 7, 36, .9)); box-shadow: 0 0 10px rgba(232, 121, 249, .45); color: #fae8ff; }
 html.theme-snow .announce-bar { border-color: #bae6fd; background: linear-gradient(90deg, rgba(186, 230, 253, .18), rgba(19, 40, 63, .9)); color: #e0f2fe; }
+
+/* ---------- 更新日誌 ---------- */
+.changelog-btn { position: relative; }
+.changelog-dot { position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 0 2px var(--bg); }
+.changelog-dot.hidden { display: none; }
+.cl-entry { padding: 2px 0 10px; border-bottom: 1px dashed var(--border); margin-bottom: 10px; }
+.cl-entry:last-child { border-bottom: none; }
+.cl-entry h4 { margin: 4px 0 6px; color: var(--accent); }
+.cl-entry ul { margin: 0; padding-left: 20px; line-height: 1.7; }
