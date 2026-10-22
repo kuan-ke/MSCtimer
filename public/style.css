@@ -910,8 +910,6 @@ body {
 .drop-rate.all b { color: #fbbf24; }
 .drop-rate.week b { color: #5eead4; }
 .drop-rate.zero b { color: #64748b; }
-.drops-chip.sort { margin-left: auto; }
-.drops-chip.sort.locked { opacity: .55; }
 .drops-rates-locked { color: #fbbf24; }
 .drop-desc { font-size: 11px; color: var(--text-faint); margin-top: 2px; line-height: 1.4; }
 .drops-note { font-size: 11px; color: var(--text-faint); padding-top: 8px; border-top: 1px solid var(--border); margin-top: 6px; }

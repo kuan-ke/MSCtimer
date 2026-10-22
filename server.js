@@ -551,6 +551,10 @@ function bragAddToday(name) {
 }
 const DROP_ITEMS = {};
 Object.entries(DROPS).forEach(([img, b]) => { DROP_ITEMS[img] = new Map((b.drops || []).map((d) => [d.id, d.name])); });
+// 掉落機率只公開：裝備、卷軸（204xxxx）、飛鏢（207xxxx）、膠囊（2331000～2339999，不含彈丸）
+function isRateItem(d) { return d.kind === '裝備' || (d.id >= 2040000 && d.id < 2050000) || (d.id >= 2070000 && d.id < 2080000) || (d.id >= 2331000 && d.id < 2340000); }
+const RATE_ITEMS = {};
+Object.entries(DROPS).forEach(([img, b]) => { RATE_ITEMS[img] = new Set((b.drops || []).filter(isRateItem).map((d) => String(d.id))); });
 const LOOT_MIN_KILLS = 10; // 房間這隻王擊殺達 10 次以上，才算進全站戰利品統計
 
 // 全站戰利品統計：{ 房間代號: { 王圖檔: { k: 擊殺數, i: { 道具編號: 次數 }, t: 更新時間 } } }
@@ -880,12 +884,13 @@ function lootRates() {
     Object.entries(globalLoot[rk]).forEach(([img, v]) => {
       const a = slot(img).all;
       a.rooms++; a.k += v.k || 0;
-      Object.entries(v.i || {}).forEach(([id, c]) => { a.i[id] = (a.i[id] || 0) + c; });
+      const keep = RATE_ITEMS[img] || new Set();
+      Object.entries(v.i || {}).forEach(([id, c]) => { if (keep.has(String(id))) a.i[id] = (a.i[id] || 0) + c; });
       const wv = weekLoot.r[rk] && weekLoot.r[rk][img];
       if (wv && (wv.k || Object.keys(wv.i).length)) {
         const w = slot(img).week;
         w.rooms++; w.k += wv.k || 0;
-        Object.entries(wv.i || {}).forEach(([id, c]) => { w.i[id] = (w.i[id] || 0) + c; });
+        Object.entries(wv.i || {}).forEach(([id, c]) => { if (keep.has(String(id))) w.i[id] = (w.i[id] || 0) + c; });
       }
     });
   });

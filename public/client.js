@@ -1209,7 +1209,6 @@ function loadDrops() {
 // 全站掉落機率（歷史總計＋本週，所有房間總和；伺服器每 30 秒更新一次）
 let lootRatesData = null;
 let lootRatesAt = 0;
-let dropsSortRate = false;
 function loadLootRates(force) {
   if (!isSupporterMe()) { lootRatesData = null; return Promise.resolve(null); } // 贊助者專屬
   if (!force && lootRatesData && Date.now() - lootRatesAt < 30000) return Promise.resolve(lootRatesData);
@@ -1230,6 +1229,8 @@ function fmtRate(c, k) {
   if (p === 0) return '0%';
   return (p >= 10 ? p.toFixed(1) : p >= 1 ? p.toFixed(2) : p.toFixed(3)).replace(/\.?0+$/, '') + '%';
 }
+// 掉落機率只顯示：裝備、卷軸（204xxxx）、飛鏢（207xxxx）、膠囊（2331000～2339999，不含彈丸）
+function isRateItem(x) { return x.kind === '裝備' || (x.id >= 2040000 && x.id < 2050000) || (x.id >= 2070000 && x.id < 2080000) || (x.id >= 2331000 && x.id < 2340000); }
 function bossRates(image) {
   const b = lootRatesData && lootRatesData.bosses && lootRatesData.bosses[image];
   return b || { all: { k: 0, rooms: 0, i: {} }, week: { k: 0, rooms: 0, i: {} } };
@@ -1278,26 +1279,12 @@ function renderDrops() {
     b.addEventListener('click', () => { dropsFilter = k; renderDrops(); });
     fEl.appendChild(b);
   });
-  {
-    const sb = document.createElement('button');
-    sb.type = 'button';
-    const vip = isSupporterMe();
-    sb.className = 'drops-chip sort' + (vip && dropsSortRate ? ' active' : '') + (vip ? '' : ' locked');
-    sb.textContent = '📊 依機率排序';
-    sb.title = vip ? '依歷史掉落機率由高到低排列' : '⭐ 掉落機率是贊助者專屬功能';
-    sb.addEventListener('click', () => {
-      if (!isSupporterMe()) { showToast('⭐ 掉落機率是贊助者專屬功能'); return; }
-      dropsSortRate = !dropsSortRate; renderDrops();
-    });
-    fEl.appendChild(sb);
-  }
   renderRatesSum();
   const rates = bossRates(getCurrentTab() && getCurrentTab().image);
   const list = document.getElementById('dropsList');
   const keepScroll = list.scrollTop;
   list.innerHTML = '';
   const shown = boss.drops.filter((x) => (dropsFilter === '全部' || x.kind === dropsFilter) && (!q || x.name.toLowerCase().includes(q)));
-  if (dropsSortRate && isSupporterMe()) shown.sort((a, b) => (rates.all.i[b.id] || 0) - (rates.all.i[a.id] || 0) || (rates.week.i[b.id] || 0) - (rates.week.i[a.id] || 0));
   document.getElementById('dropsCount').textContent = `戰利品 ${boss.drops.length} 項`;
   if (shown.length === 0) {
     const e = document.createElement('div');
@@ -1336,7 +1323,7 @@ function renderDrops() {
       det.textContent = x.detail;
       body.appendChild(det);
     }
-    if (isSupporterMe()) {
+    if (isSupporterMe() && isRateItem(x)) {
       const rr = document.createElement('div');
       rr.className = 'drop-rates';
       [['all', '歷史', rates.all], ['week', '本週', rates.week]].forEach(([cls, label, r]) => {
