@@ -497,17 +497,33 @@ function showBragIn(d, b, left) {
   if (!d || !d.body) return null;
   const box = d.createElement('div');
   box.className = 'brag-toast';
-  const t1 = d.createElement('span');
-  t1.textContent = `🎉 ${b.name} 擊殺了${b.boss}後，獲得了`;
-  const ic = d.createElement('img');
-  ic.src = `drops/icons/${b.itemId}.png`;
-  ic.alt = '';
-  ic.onerror = () => ic.remove();
-  const nm = d.createElement('b');
-  nm.textContent = b.item;
-  const t2 = d.createElement('span');
-  t2.textContent = '！大家一起恭喜他！';
-  box.append(t1, ic, nm, t2);
+  if (b.type === 'milestone') {
+    // 擊殺里程碑：「XX在本站被擊殺了 N 次！」
+    box.classList.add('milestone');
+    const ic = d.createElement('img');
+    ic.src = `images/${b.image}`;
+    ic.alt = '';
+    ic.onerror = () => ic.remove();
+    const t1 = d.createElement('span');
+    t1.textContent = '🏆';
+    const nm = d.createElement('b');
+    nm.textContent = b.boss;
+    const t2 = d.createElement('span');
+    t2.textContent = `在本站被擊殺了 ${Number(b.n).toLocaleString()} 次！`;
+    box.append(t1, ic, nm, t2);
+  } else {
+    const t1 = d.createElement('span');
+    t1.textContent = `🎉 ${b.name} 擊殺了${b.boss}後，獲得了`;
+    const ic = d.createElement('img');
+    ic.src = `drops/icons/${b.itemId}.png`;
+    ic.alt = '';
+    ic.onerror = () => ic.remove();
+    const nm = d.createElement('b');
+    nm.textContent = b.item;
+    const t2 = d.createElement('span');
+    t2.textContent = '！大家一起恭喜他！';
+    box.append(t1, ic, nm, t2);
+  }
   if (left > 0) {
     const q = d.createElement('small');
     q.className = 'brag-more';
@@ -538,6 +554,12 @@ function playNextBrag() {
     playNextBrag();
   }, BRAG_SHOW_MS);
 }
+socket.on('killMilestone', (m) => {
+  if (!m || !m.boss || !m.n) return;
+  if (bragQueue.length >= BRAG_QUEUE_MAX) bragQueue.shift();
+  bragQueue.push({ type: 'milestone', image: m.image, boss: m.boss, n: m.n });
+  playNextBrag();
+});
 socket.on('brag', (b) => {
   if (!b || !b.name) return;
   if (bragQueue.length >= BRAG_QUEUE_MAX) bragQueue.shift(); // 太多就丟掉最舊的，避免排太久

@@ -176,7 +176,7 @@
     onlineBtn.addEventListener('click', openOnlineUsers);
     panel.appendChild(onlineBtn);
     const lootBtn = el('button', 'admin-stats-btn', '🎁 全站戰利品統計');
-    lootBtn.title = '擊殺 10 次以上的房間，各王的擊殺數與記錄到的戰利品';
+    lootBtn.title = '擊殺 30 次以上、且有記錄過戰利品的房間，各王的擊殺數與記錄到的戰利品';
     lootBtn.style.marginLeft = '6px';
     lootBtn.addEventListener('click', openLootStats);
     panel.appendChild(lootBtn);
@@ -1011,7 +1011,7 @@
       [refresh, dl, clr, close].forEach((b) => head.appendChild(b));
       box.appendChild(head);
       const body = el('div', 'kps-body');
-      body.appendChild(el('div', 'kps-summary', `這是「全站」合計：所有房間中，某隻王擊殺達 ${st.minKills} 次以上的房間都會計入（目前 ${st.rooms} 間）。掉落率 = 記錄到的次數 ÷ 總擊殺次數，取決於大家有沒有確實記錄。發現有房間亂點，可在最下方「各房間明細」刪除並排除該房間。`));
+      body.appendChild(el('div', 'kps-summary', `這是「全站」合計：所有房間中，某隻王擊殺達 ${st.minKills} 次以上、而且至少記錄過 1 次這隻王戰利品的房間都會計入（目前 ${st.rooms} 間）。掉落率 = 記錄到的次數 ÷ 總擊殺次數，取決於大家有沒有確實記錄。發現有房間亂點，可在最下方「各房間明細」刪除並排除該房間。`));
       if (!st.bosses.length) body.appendChild(el('div', 'kps-summary', '目前還沒有達到門檻的房間。'));
       st.bosses.forEach((b) => {
         const t = el('table', 'kps-table');

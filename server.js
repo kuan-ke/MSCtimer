@@ -555,7 +555,7 @@ Object.entries(DROPS).forEach(([img, b]) => { DROP_ITEMS[img] = new Map((b.drops
 function isRateItem(d) { return d.kind === '裝備' || (d.id >= 2040000 && d.id < 2050000) || (d.id >= 2070000 && d.id < 2080000) || (d.id >= 2331000 && d.id < 2340000); }
 const RATE_ITEMS = {};
 Object.entries(DROPS).forEach(([img, b]) => { RATE_ITEMS[img] = new Set((b.drops || []).filter(isRateItem).map((d) => String(d.id))); });
-const LOOT_MIN_KILLS = 10; // 房間這隻王擊殺達 10 次以上，才算進全站戰利品統計
+const LOOT_MIN_KILLS = 30; // 房間這隻王擊殺達 30 次以上、且至少記錄過 1 次這隻王的戰利品，才算進全站戰利品統計
 
 // 全站戰利品統計：{ 房間代號: { 王圖檔: { k: 擊殺數, i: { 道具編號: 次數 }, t: 更新時間 } } }
 // ---------- 贊助榜 ----------
@@ -789,14 +789,16 @@ let globalLoot = {};
 function roomShort(room) { return String(room.id).slice(-6); }
 // 被管理者排除的房間（亂點等），之後不再計入：globalLoot._x = [房間代號…]
 function lootExcluded() { if (!Array.isArray(globalLoot._x)) globalLoot._x = []; return globalLoot._x; }
-function lootRooms() { return Object.keys(globalLoot).filter((k) => k !== '_x'); }
+function lootRooms() { return Object.keys(globalLoot).filter((k) => k !== '_x' && k !== '_v'); }
 function updateGlobalLoot(room, image) {
   if (!DROP_ITEMS[image]) return;
   if (lootExcluded().includes(roomShort(room))) return;
   const tab = room.tabs.find((t) => t.locked && t.image === image);
   const kills = tab ? (tab.killCount || 0) : 0;
   const key = roomShort(room);
-  if (kills >= LOOT_MIN_KILLS) {
+  // 只用計時、從來沒記錄過這隻王戰利品的房間不算（避免擊殺數灌大、掉率偏低）
+  const hasLoot = !!room.loot && !!room.loot[image] && Object.keys(room.loot[image]).length > 0;
+  if (kills >= LOOT_MIN_KILLS && hasLoot) {
     if (!globalLoot[key]) globalLoot[key] = {};
     globalLoot[key][image] = { k: kills, i: { ...(room.loot[image] || {}) }, t: Date.now() };
   } else if (globalLoot[key] && globalLoot[key][image]) {
@@ -897,6 +899,30 @@ function lootRates() {
   lootRatesCache = { week: weekLoot.w, minKills: LOOT_MIN_KILLS, bosses: out };
   lootRatesAt = Date.now();
   return lootRatesCache;
+}
+
+// ---------- 各王在全站被擊殺的總次數：每滿 1000 次全站跳通知 ----------
+const KILL_MILESTONE = 1000;
+let globalKills = {}; // { 王圖片: 次數 }
+let globalKillsSaveTimer = null;
+function saveGlobalKillsSoon() {
+  if (globalKillsSaveTimer) return;
+  globalKillsSaveTimer = setTimeout(() => {
+    globalKillsSaveTimer = null;
+    persist.saveGlobalKills(globalKills).catch((e) => console.error('[保存] 全站擊殺次數失敗：', e.message));
+  }, 5000);
+}
+function countGlobalKill(image, by) {
+  if (!BOSS_DEFAULTS[image]) return; // 只算預設的王（自訂分頁不算）
+  const n = (globalKills[image] || 0) + 1;
+  globalKills[image] = n;
+  saveGlobalKillsSoon();
+  if (n % KILL_MILESTONE === 0) {
+    const preset = BOSS_PRESETS.find((b) => b.image === image);
+    const boss = (preset && preset.name) || (DROPS[image] && DROPS[image].name) || '王';
+    io.emit('killMilestone', { image, boss, n, by: by || '' });
+    console.log(`[里程碑] ${boss} 在本站被擊殺了 ${n} 次（${by}）`);
+  }
 }
 
 // 全站時間點紀錄（新的在後）
@@ -1972,7 +1998,7 @@ io.on('connection', (socket) => {
     ch.startedBy = nickname;
     ch.standby = null;
     tab.killCount = (tab.killCount || 0) + 1;
-    if (tab.locked && tab.image) { weekBump(room, tab.image, 'k', 1); updateGlobalLoot(room, tab.image); }
+    if (tab.locked && tab.image) { weekBump(room, tab.image, 'k', 1); updateGlobalLoot(room, tab.image); countGlobalKill(tab.image, nickname); }
     addLog(room, `${nickname} 擊殺了「${tab.name}」CH${channelIndex + 1}，重新開始倒數`, 'start');
     broadcastChannels(room, [{ tabId: tab.id, channelIndex }]); // 只送這一個 CH 的變化
     io.to(VIEW(room.id)).emit('tab:meta', { tabId: tab.id, killCount: tab.killCount });
@@ -2228,6 +2254,14 @@ async function start() {
       try {
         globalKillPoints = await persist.loadKillPoints();
         globalLoot = (await persist.loadLootStats()) || {};
+        const gk = await persist.loadGlobalKills();
+        if (gk && typeof gk === 'object') globalKills = gk;
+        else {
+          // 第一次啟用：用目前所有房間的擊殺次數當起始值
+          rooms.forEach((r) => r.tabs.forEach((t) => { if (t.locked && t.image && BOSS_DEFAULTS[t.image]) globalKills[t.image] = (globalKills[t.image] || 0) + (t.killCount || 0); }));
+          saveGlobalKillsSoon();
+          console.log('[擊殺] 全站擊殺次數起始值：', JSON.stringify(globalKills));
+        }
         const wl = await persist.loadWeekLoot();
         if (wl && wl.w && wl.r && typeof wl.r === 'object') weekLoot = wl;
         weekRoll();
@@ -2236,6 +2270,15 @@ async function start() {
         checkSupporterMonth(); // 清掉過期的、本月已經滿 NT$50 的贊助者自動加入
         console.log(`[保存] 已讀回 ${donations.length} 筆贊助紀錄`);
         // 門檻調整後，已經達標的房間啟動時就補進全站統計
+        // 新規則（擊殺 30 次以上＋至少記錄過 1 次戰利品）套用到舊資料：已經關掉的房間留下的統計也一起檢查
+        let lootPruned = 0;
+        lootRooms().forEach((rk) => {
+          Object.entries(globalLoot[rk]).forEach(([img, v]) => {
+            if ((v.k || 0) < LOOT_MIN_KILLS || !v.i || Object.keys(v.i).length === 0) { delete globalLoot[rk][img]; lootPruned++; }
+          });
+          if (Object.keys(globalLoot[rk]).length === 0) delete globalLoot[rk];
+        });
+        if (lootPruned) { persist.markLootDirty(() => globalLoot); console.log(`[戰利品] 移除 ${lootPruned} 筆不符合新規則的統計`); }
         rooms.forEach((r) => Object.keys(DROP_ITEMS).forEach((img) => updateGlobalLoot(r, img)));
         console.log(`[保存] 已讀回 ${globalKillPoints.length} 筆全站時間點紀錄`);
       } catch (e) {

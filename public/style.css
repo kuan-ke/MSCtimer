@@ -1295,6 +1295,9 @@ button.donate-link { width: 100%; font: inherit; font-weight: 700; cursor: point
 .brag-toast img { width: 32px; height: 32px; object-fit: contain; image-rendering: pixelated; background: rgba(255,255,255,.12); border-radius: 6px; padding: 2px; }
 .brag-toast b { color: #fde68a; font-size: 19px; }
 .brag-more { width: 100%; font-size: 12px; font-weight: 600; color: #f5d0fe; }
+.brag-toast.milestone { background: linear-gradient(135deg, rgba(120, 53, 15, .97), rgba(180, 83, 9, .97)); border-color: #fcd34d; box-shadow: 0 0 24px rgba(252, 211, 77, .6), 0 10px 30px rgba(0, 0, 0, .5); }
+.brag-toast.milestone img { width: 40px; height: 40px; image-rendering: auto; border-radius: 8px; }
+.is-pip .brag-toast.milestone img { width: 22px; height: 22px; }
 .brag-toast.out { opacity: 0; transform: translateX(-50%) translateY(-10px); }
 @keyframes bragIn { from { opacity: 0; transform: translateX(-50%) translateY(-16px) scale(.92); } to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); } }
 /* 子母畫面：壓成一行、只蓋在上方王的標籤列，不擋到頻道 */
