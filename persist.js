@@ -260,6 +260,17 @@ async function loadAnnouncement() {
 
 // 炫耀次數（每天、每個暱稱）：{ day: 'YYYY-MM-DD', counts: { 小寫暱稱: 次數 } }
 const BRAG_DAILY_KEY = PREFIX + 'brag_daily';
+// 每週戰利品統計（所有房間總和；每週一 00:00 台灣時間重新開始）
+const WEEK_LOOT_KEY = PREFIX + 'week_loot';
+async function saveWeekLoot(v) {
+  if (!ENABLED) return;
+  await call(['SET', WEEK_LOOT_KEY, JSON.stringify(v)]);
+}
+async function loadWeekLoot() {
+  if (!ENABLED) return null;
+  const v = await call(['GET', WEEK_LOOT_KEY]);
+  try { return v ? JSON.parse(v) : null; } catch (e) { return null; }
+}
 async function saveBragDaily(v) {
   if (!ENABLED) return;
   await call(['SET', BRAG_DAILY_KEY, JSON.stringify(v)]);
@@ -270,4 +281,4 @@ async function loadBragDaily() {
   try { return v ? JSON.parse(v) : null; } catch (e) { return null; }
 }
 
-module.exports = { ENABLED, saveBragDaily, loadBragDaily, saveAnnouncement, loadAnnouncement, setNickOwner, delNickOwner, loadNickOwners, saveSupporters, loadSupporters, saveBossRanges, loadBossRanges, saveGlobalMuted, loadGlobalMuted, init, loadAll, markDirty, flush, removeRoom, pushKillPoint, loadKillPoints, clearKillPoints, markLootDirty, loadLootStats, clearLootStats, saveDonations, loadDonations, saveDonatePending, loadDonatePending, GLOBAL_KP_MAX, loadedFromLegacy: false };
+module.exports = { ENABLED, saveWeekLoot, loadWeekLoot, saveBragDaily, loadBragDaily, saveAnnouncement, loadAnnouncement, setNickOwner, delNickOwner, loadNickOwners, saveSupporters, loadSupporters, saveBossRanges, loadBossRanges, saveGlobalMuted, loadGlobalMuted, init, loadAll, markDirty, flush, removeRoom, pushKillPoint, loadKillPoints, clearKillPoints, markLootDirty, loadLootStats, clearLootStats, saveDonations, loadDonations, saveDonatePending, loadDonatePending, GLOBAL_KP_MAX, loadedFromLegacy: false };

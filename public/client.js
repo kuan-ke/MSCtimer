@@ -441,6 +441,14 @@ function applyPerksUI() {
   applyTheme();
   // 出現中「📦 戰利品」清單上的炫耀按鈕
   if (typeof renderLoot === 'function') { try { renderLoot(); } catch (e) { /* ignore */ } }
+  // 戰利品目錄開著的話，掉落機率（贊助者專屬）也跟著更新
+  try {
+    if (dropsCurrent && !document.getElementById('dropsOverlay').classList.contains('hidden')) {
+      const boss = dropsCurrent;
+      renderDrops();
+      loadLootRates(true).then(() => { if (dropsCurrent === boss) renderDrops(); });
+    }
+  } catch (e) { /* ignore */ }
 }
 let gotPerks = false;
 socket.on('me:perks', (p) => {
@@ -460,7 +468,7 @@ socket.on('perk:denied', (msg) => showToast('⭐ ' + (msg || '贊助者專屬功
   document.addEventListener('click', (e) => { if (!pop.contains(e.target) && e.target !== tb && !tb.contains(e.target)) pop.classList.add('hidden'); });
   pop.querySelectorAll('.theme-opt').forEach((b) => b.addEventListener('click', () => {
     const t = b.dataset.theme;
-    if (t !== 'default' && !isSupporterMe()) { showToast('⭐ 霓虹、雪原介面是贊助者專屬（當月贊助滿 NT$50 即可使用，詳見「💖 贊助」）'); return; }
+    if (t !== 'default' && !isSupporterMe()) { showToast('⭐ 霓虹、雪原介面是贊助者專屬'); return; }
     storageSet(THEME_KEY, t);
     applyTheme();
     pop.classList.add('hidden');
@@ -472,7 +480,7 @@ socket.on('perk:denied', (msg) => showToast('⭐ ' + (msg || '贊助者專屬功
 function bragItem(image, item, d) {
   if (!ensureNickname()) return;
   const toast = (m) => { showToast(m, d); if (d && d !== document) showToast(m); };
-  if (!isSupporterMe()) { showToast('⭐ 炫耀是贊助者專屬功能（當月贊助滿 NT$50 即可使用，詳見「💖 贊助」）', d); return; }
+  if (!isSupporterMe()) { showToast('⭐ 炫耀是贊助者專屬功能', d); return; }
   const boss = (dropsData && dropsData[image] && dropsData[image].name) || '王';
   if (!((d && d.defaultView) || window).confirm(`要向全站炫耀「擊殺了${boss}後，獲得了 ${item.name}」嗎？`)) return;
   socket.emit('brag', { image, itemId: item.id }, (r) => {
@@ -1133,7 +1141,7 @@ function renderTabsInto(target, compact) {
 }
 
 addTabBtn.addEventListener('click', () => {
-  if (!isSupporterMe()) { showToast('⭐ 新增自訂王是贊助者專屬功能（當月贊助滿 NT$50 即可使用，詳見「💖 贊助」）'); return; }
+  if (!isSupporterMe()) { showToast('⭐ 新增自訂王是贊助者專屬功能'); return; }
   const name = prompt('輸入新分頁名稱：', `分頁 ${tabs.length + 1}`);
   if (name !== null) {
     socket.emit('addTab', name.trim() || undefined);
@@ -1198,6 +1206,46 @@ function loadDrops() {
   if (dropsData) return Promise.resolve(dropsData);
   return fetch('drops/drops.json', { cache: 'no-cache' }).then((r) => r.json()).then((d) => { dropsData = d; return d; });
 }
+// 全站掉落機率（歷史總計＋本週，所有房間總和；伺服器每 30 秒更新一次）
+let lootRatesData = null;
+let lootRatesAt = 0;
+let dropsSortRate = false;
+function loadLootRates(force) {
+  if (!isSupporterMe()) { lootRatesData = null; return Promise.resolve(null); } // 贊助者專屬
+  if (!force && lootRatesData && Date.now() - lootRatesAt < 30000) return Promise.resolve(lootRatesData);
+  return new Promise((resolve) => {
+    let done = false;
+    const t = setTimeout(() => { if (!done) { done = true; resolve(lootRatesData); } }, 5000);
+    socket.emit('lootRates', (r) => {
+      if (done) return;
+      done = true; clearTimeout(t);
+      if (r && r.bosses) { lootRatesData = r; lootRatesAt = Date.now(); }
+      resolve(lootRatesData);
+    });
+  });
+}
+function fmtRate(c, k) {
+  if (!k) return '—';
+  const p = c / k * 100;
+  if (p === 0) return '0%';
+  return (p >= 10 ? p.toFixed(1) : p >= 1 ? p.toFixed(2) : p.toFixed(3)).replace(/\.?0+$/, '') + '%';
+}
+function bossRates(image) {
+  const b = lootRatesData && lootRatesData.bosses && lootRatesData.bosses[image];
+  return b || { all: { k: 0, rooms: 0, i: {} }, week: { k: 0, rooms: 0, i: {} } };
+}
+function renderRatesSum() {
+  const el = document.getElementById('dropsRatesSum');
+  if (!el) return;
+  const image = getCurrentTab() && getCurrentTab().image;
+  if (!isSupporterMe()) { el.innerHTML = ''; const l = document.createElement('span'); l.className = 'drops-rates-locked'; l.textContent = '🔒 📊 全站掉落機率（歷史／本週）為贊助者專屬功能'; el.appendChild(l); return; }
+  if (!lootRatesData || !image) { el.textContent = '📊 掉落機率讀取中…'; return; }
+  const r = bossRates(image);
+  const wk = lootRatesData.week ? lootRatesData.week.slice(5).replace('-', '/') : '';
+  el.innerHTML = '';
+  const add = (txt, bold) => { const n = bold ? document.createElement('b') : document.createTextNode(txt); if (bold) n.textContent = txt; el.appendChild(n); };
+  add('📊 全站統計　歷史：擊殺 '); add(r.all.k.toLocaleString(), true); add(` 次（${r.all.rooms} 間房）　本週（${wk} 起）：擊殺 `); add(r.week.k.toLocaleString(), true); add(' 次');
+}
 function openDrops() {
   const tab = getCurrentTab();
   if (!tab || !tab.image) return;
@@ -1211,6 +1259,7 @@ function openDrops() {
     document.getElementById('dropsBossName').textContent = boss.name;
     renderDrops();
     document.getElementById('dropsOverlay').classList.remove('hidden');
+    loadLootRates().then(() => { if (dropsCurrent === boss) renderDrops(); });
   }).catch(() => showToast('戰利品資料讀取失敗'));
 }
 function renderDrops() {
@@ -1229,10 +1278,26 @@ function renderDrops() {
     b.addEventListener('click', () => { dropsFilter = k; renderDrops(); });
     fEl.appendChild(b);
   });
+  {
+    const sb = document.createElement('button');
+    sb.type = 'button';
+    const vip = isSupporterMe();
+    sb.className = 'drops-chip sort' + (vip && dropsSortRate ? ' active' : '') + (vip ? '' : ' locked');
+    sb.textContent = '📊 依機率排序';
+    sb.title = vip ? '依歷史掉落機率由高到低排列' : '⭐ 掉落機率是贊助者專屬功能';
+    sb.addEventListener('click', () => {
+      if (!isSupporterMe()) { showToast('⭐ 掉落機率是贊助者專屬功能'); return; }
+      dropsSortRate = !dropsSortRate; renderDrops();
+    });
+    fEl.appendChild(sb);
+  }
+  renderRatesSum();
+  const rates = bossRates(getCurrentTab() && getCurrentTab().image);
   const list = document.getElementById('dropsList');
   const keepScroll = list.scrollTop;
   list.innerHTML = '';
   const shown = boss.drops.filter((x) => (dropsFilter === '全部' || x.kind === dropsFilter) && (!q || x.name.toLowerCase().includes(q)));
+  if (dropsSortRate && isSupporterMe()) shown.sort((a, b) => (rates.all.i[b.id] || 0) - (rates.all.i[a.id] || 0) || (rates.week.i[b.id] || 0) - (rates.week.i[a.id] || 0));
   document.getElementById('dropsCount').textContent = `戰利品 ${boss.drops.length} 項`;
   if (shown.length === 0) {
     const e = document.createElement('div');
@@ -1270,6 +1335,23 @@ function renderDrops() {
       det.className = 'drop-detail';
       det.textContent = x.detail;
       body.appendChild(det);
+    }
+    if (isSupporterMe()) {
+      const rr = document.createElement('div');
+      rr.className = 'drop-rates';
+      [['all', '歷史', rates.all], ['week', '本週', rates.week]].forEach(([cls, label, r]) => {
+        const c = r.i[x.id] || 0;
+        const tag = document.createElement('span');
+        tag.className = 'drop-rate ' + cls + (c ? '' : ' zero');
+        tag.title = r.k ? `${label}：全站記錄掉落 ${c} 次 ÷ 擊殺 ${r.k} 次` : `${label}：還沒有足夠的擊殺紀錄`;
+        tag.append(label + ' ');
+        const bb = document.createElement('b');
+        bb.textContent = fmtRate(c, r.k);
+        tag.appendChild(bb);
+        if (c) tag.append(`（${c}）`);
+        rr.appendChild(tag);
+      });
+      body.appendChild(rr);
     }
     if (x.desc) {
       const ds = document.createElement('div');
@@ -2191,7 +2273,7 @@ function renderLootInto(d) {
         const brag = d.createElement('button');
         brag.type = 'button';
         brag.className = 'loot-brag' + (isSupporterMe() ? '' : ' locked');
-        brag.title = isSupporterMe() ? '炫耀：向全站宣布你獲得了這個戰利品（贊助者專屬）' : '⭐ 炫耀是贊助者專屬功能（當月贊助滿 NT$50 即可使用）';
+        brag.title = isSupporterMe() ? '炫耀：向全站宣布你獲得了這個戰利品（贊助者專屬）' : '⭐ 炫耀是贊助者專屬功能';
         brag.textContent = '📣';
         brag.addEventListener('click', (e) => { e.stopPropagation(); bragItem(img, { id: Number(id), name: info ? info.name : id }, d); });
         row.appendChild(brag);

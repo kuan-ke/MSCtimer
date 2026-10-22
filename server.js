@@ -829,6 +829,71 @@ function lootCsv() {
   return '\ufeff' + lines.join('\r\n');
 }
 
+// ---------- 每週戰利品統計（所有房間總和）：每週一 00:00（台灣時間）重新開始 ----------
+// weekLoot = { w: 'YYYY-MM-DD'（該週週一）, r: { 房間代號: { 王圖片: { k: 本週擊殺, i: { 道具編號: 本週掉落 } } } } }
+// 只有「歷史統計有計入」的房間／王（擊殺達門檻、沒被排除）才會算進本週機率
+function weekKey(t) {
+  const d = new Date(t + 8 * 3600000);
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
+}
+let weekLoot = { w: weekKey(Date.now()), r: {} };
+let weekSaveTimer = null;
+function saveWeekLootSoon() {
+  if (weekSaveTimer) return;
+  weekSaveTimer = setTimeout(() => {
+    weekSaveTimer = null;
+    persist.saveWeekLoot(weekLoot).catch((e) => console.error('[保存] 每週戰利品統計失敗：', e.message));
+  }, 5000);
+}
+function weekRoll() {
+  const w = weekKey(Date.now());
+  if (weekLoot.w !== w) { weekLoot = { w, r: {} }; lootRatesCache = null; saveWeekLootSoon(); }
+}
+// field: 'k' 擊殺 或 道具編號；delta: +1 / -1
+function weekBump(room, image, field, delta) {
+  if (!DROP_ITEMS[image]) return;
+  weekRoll();
+  const key = roomShort(room);
+  if (lootExcluded().includes(key)) return;
+  const r = weekLoot.r[key] || (weekLoot.r[key] = {});
+  const b = r[image] || (r[image] = { k: 0, i: {} });
+  if (field === 'k') b.k = Math.max(0, b.k + delta);
+  else {
+    const n = (b.i[field] || 0) + delta;
+    if (n > 0) b.i[field] = n; else delete b.i[field];
+  }
+  saveWeekLootSoon();
+}
+function weekDropRoom(key) {
+  if (weekLoot.r[key]) { delete weekLoot.r[key]; saveWeekLootSoon(); }
+}
+// 公開的掉落機率：歷史（全站統計）＋本週，回傳 { 王圖片: { all: {k, rooms, i}, week: {k, rooms, i} } }
+let lootRatesCache = null;
+let lootRatesAt = 0;
+function lootRates() {
+  weekRoll();
+  if (lootRatesCache && Date.now() - lootRatesAt < 30000) return lootRatesCache;
+  const out = {};
+  const slot = (img) => out[img] || (out[img] = { all: { k: 0, rooms: 0, i: {} }, week: { k: 0, rooms: 0, i: {} } });
+  lootRooms().forEach((rk) => {
+    Object.entries(globalLoot[rk]).forEach(([img, v]) => {
+      const a = slot(img).all;
+      a.rooms++; a.k += v.k || 0;
+      Object.entries(v.i || {}).forEach(([id, c]) => { a.i[id] = (a.i[id] || 0) + c; });
+      const wv = weekLoot.r[rk] && weekLoot.r[rk][img];
+      if (wv && (wv.k || Object.keys(wv.i).length)) {
+        const w = slot(img).week;
+        w.rooms++; w.k += wv.k || 0;
+        Object.entries(wv.i || {}).forEach(([id, c]) => { w.i[id] = (w.i[id] || 0) + c; });
+      }
+    });
+  });
+  lootRatesCache = { week: weekLoot.w, minKills: LOOT_MIN_KILLS, bosses: out };
+  lootRatesAt = Date.now();
+  return lootRatesCache;
+}
+
 // 全站時間點紀錄（新的在後）
 let globalKillPoints = [];
 
@@ -1400,6 +1465,7 @@ io.on('connection', (socket) => {
     persist.markDirty(room);
     io.to(VIEW(room.id)).emit('loot:update', { image, itemId: id, count });
     addLog(room, `${socket.data.nickname} 記錄了「${(DROPS[image] && DROPS[image].name) || ''}」掉落：${items.get(id)}（第 ${count} 個）`, 'start');
+    weekBump(room, image, String(id), 1);
     updateGlobalLoot(room, image);
     reply({ ok: true, count });
   });
@@ -1417,6 +1483,7 @@ io.on('connection', (socket) => {
     io.to(VIEW(room.id)).emit('loot:update', { image, itemId: id, count: Math.max(0, count) });
     const name = DROP_ITEMS[image] ? DROP_ITEMS[image].get(id) : id;
     addLog(room, `${socket.data.nickname} 將「${(DROPS[image] && DROPS[image].name) || ''}」的 ${name} 紀錄 -1`, 'stop');
+    weekBump(room, image, String(id), -1);
     updateGlobalLoot(room, image);
   });
 
@@ -1434,7 +1501,15 @@ io.on('connection', (socket) => {
     // 這間房間在全站統計裡的資料也一起移除（避免擊殺數留著、掉落歸零造成掉率失真）
     const key = roomShort(room);
     if (globalLoot[key] && key !== '_x') { delete globalLoot[key]; persist.markLootDirty(() => globalLoot); }
+    weekDropRoom(key);
     reply({ ok: true, cleared: imgs.length });
+  });
+
+  // 贊助者專屬：各王的戰利品掉落機率（歷史總計＋本週，所有房間總和）
+  socket.on('lootRates', (cb) => {
+    if (typeof cb !== 'function') return;
+    if (!isSupporter(socket) && !socket.data.isAdmin) return cb({ locked: true }); // 贊助者專屬
+    cb(lootRates());
   });
 
   // 管理者：全站戰利品統計 / CSV / 清空
@@ -1460,6 +1535,7 @@ io.on('connection', (socket) => {
   socket.on('adminLootRemoveRoom', ({ key } = {}, cb) => {
     if (!socket.data.isAdmin || typeof key !== 'string') return;
     delete globalLoot[key];
+    weekDropRoom(key);
     const ex = lootExcluded();
     if (!ex.includes(key)) ex.push(key);
     persist.markLootDirty(() => globalLoot);
@@ -1481,6 +1557,8 @@ io.on('connection', (socket) => {
   socket.on('adminClearLootStats', async (cb) => {
     if (!socket.data.isAdmin) return;
     globalLoot = {};
+    weekLoot = { w: weekKey(Date.now()), r: {} };
+    saveWeekLootSoon();
     try { await persist.clearLootStats(); } catch (e) { console.error('[保存] 清空戰利品統計失敗：', e.message); }
     if (typeof cb === 'function') cb({ ok: true });
   });
@@ -1658,7 +1736,7 @@ io.on('connection', (socket) => {
     const room = getRoom(socket);
     if (!room || !socket.data.nickname) return reply({ error: '請先進入房間' });
     if (isMuted(room, socket)) return reply({ error: '你目前被禁止操作' });
-    if (!isSupporter(socket)) return reply({ error: '炫耀是贊助者專屬功能（當月贊助滿 NT$50 即可使用）' });
+    if (!isSupporter(socket)) return reply({ error: '炫耀是贊助者專屬功能' });
     const items = DROP_ITEMS[image];
     const id = Number(itemId);
     if (!items || !items.has(id)) return reply({ error: '找不到這個戰利品' });
@@ -1795,7 +1873,7 @@ io.on('connection', (socket) => {
   socket.on('addTab', (name) => {
     const room = requireRoom();
     if (!room) return;
-    if (!isSupporter(socket)) { socket.emit('perk:denied', '新增自訂王是贊助者專屬功能（當月贊助滿 NT$50 即可使用）'); return; }
+    if (!isSupporter(socket)) { socket.emit('perk:denied', '新增自訂王是贊助者專屬功能'); return; }
     room.tabs.push(createTab(typeof name === 'string' ? name : '', 45, 60, null, false));
     broadcastState(room);
   });
@@ -1889,7 +1967,7 @@ io.on('connection', (socket) => {
     ch.startedBy = nickname;
     ch.standby = null;
     tab.killCount = (tab.killCount || 0) + 1;
-    if (tab.locked && tab.image) updateGlobalLoot(room, tab.image);
+    if (tab.locked && tab.image) { weekBump(room, tab.image, 'k', 1); updateGlobalLoot(room, tab.image); }
     addLog(room, `${nickname} 擊殺了「${tab.name}」CH${channelIndex + 1}，重新開始倒數`, 'start');
     broadcastChannels(room, [{ tabId: tab.id, channelIndex }]); // 只送這一個 CH 的變化
     io.to(VIEW(room.id)).emit('tab:meta', { tabId: tab.id, killCount: tab.killCount });
@@ -2145,6 +2223,9 @@ async function start() {
       try {
         globalKillPoints = await persist.loadKillPoints();
         globalLoot = (await persist.loadLootStats()) || {};
+        const wl = await persist.loadWeekLoot();
+        if (wl && wl.w && wl.r && typeof wl.r === 'object') weekLoot = wl;
+        weekRoll();
         donations = (await persist.loadDonations()) || [];
         donatePending = (await persist.loadDonatePending()) || [];
         checkSupporterMonth(); // 清掉過期的、本月已經滿 NT$50 的贊助者自動加入
