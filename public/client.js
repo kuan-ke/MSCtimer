@@ -2618,11 +2618,10 @@ const DONATE_LINKS = [
   const amtIn = document.getElementById('donAmount');
   const msgIn = document.getElementById('donMsg');
   const anonIn = document.getElementById('donAnon');
-  let savedName = '';
+  // 匿名贊助：暱稱照樣可以填（不公開，只用來自動開通贊助者福利）
   anonIn.addEventListener('change', () => {
-    if (anonIn.checked) { savedName = nameIn.value; nameIn.value = ''; } else if (!nameIn.value) nameIn.value = savedName;
-    nameIn.disabled = anonIn.checked;
-    nameIn.placeholder = anonIn.checked ? '匿名贊助（不用填）' : '要顯示在贊助榜上的名字';
+    if (anonIn.checked && !nameIn.value.trim() && myNickname) nameIn.value = myNickname;
+    nameIn.placeholder = anonIn.checked ? '不公開（選填）' : '要顯示在贊助榜上的名字';
   });
   const errEl = document.getElementById('donateError');
   const resEl = document.getElementById('donateResult');
@@ -2655,7 +2654,7 @@ const DONATE_LINKS = [
         if (open && !img.src) img.src = l.qr;
         if (!open) return;
         const anon = anonIn.checked;
-        const name = anon ? '' : nameIn.value.trim();
+        const name = nameIn.value.trim();
         const amount = amtIn.value.trim();
         const msg = msgIn.value.trim();
         if (!anon && !name && !amount && !msg) return; // 什麼都沒填：直接付款（不上榜）
@@ -2679,7 +2678,7 @@ const DONATE_LINKS = [
       a.addEventListener('click', (e) => {
         showErr('');
         const anon = anonIn.checked;
-        const name = anon ? '' : nameIn.value.trim();
+        const name = nameIn.value.trim();
         const amount = amtIn.value.trim();
         const msg = msgIn.value.trim();
         if (!anon && !name && !amount && !msg) return; // 什麼都沒填：直接前往付款（不上榜）
@@ -2701,7 +2700,7 @@ const DONATE_LINKS = [
   let lastSent = '';
   function submitIntent(via, quiet, isQr) {
     const anon = anonIn.checked;
-    const name = anon ? '' : nameIn.value.trim();
+    const name = nameIn.value.trim();
     const amount = amtIn.value.trim();
     const msg = msgIn.value.trim();
     if ((!anon && !name) || !(Number(amount) >= 1)) return false;

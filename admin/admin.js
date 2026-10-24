@@ -661,9 +661,9 @@
             name = prompt(`這筆款項${d.paid ? `（付款人：${d.paid.payer}）` : ''}要算在哪個暱稱？\n（留空 = 匿名贊助，榜上顯示「匿名大大」）`, d.name || '');
             if (name === null) return;
             name = name.trim();
-            anon = !name;
+            anon = !!d.anon || !name;
           }
-          const v = prompt(`確認「${anon ? '匿名大大' : name}」的贊助入榜。\n實際收到的金額（NT$）：`, String(d.amount || ''));
+          const v = prompt(`確認「${anon ? '匿名大大' + (name ? `（暱稱 ${name}，不公開）` : '') : name}」的贊助入榜。\n實際收到的金額（NT$）：`, String(d.amount || ''));
           if (v === null) return;
           A.socket.emit('adminDonateConfirm', { id: d.id, amount: Number(v), name, anon }, (r) => {
             if (r && r.error) return showToast(r.error);
