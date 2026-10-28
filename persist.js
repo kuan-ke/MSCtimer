@@ -260,6 +260,17 @@ async function loadAnnouncement() {
 
 // 炫耀次數（每天、每個暱稱）：{ day: 'YYYY-MM-DD', counts: { 小寫暱稱: 次數 } }
 const BRAG_DAILY_KEY = PREFIX + 'brag_daily';
+// 流量統計（管理者看哪些檔案／功能用掉流量）
+const TRAFFIC_KEY = PREFIX + 'traffic';
+async function saveTraffic(v) {
+  if (!ENABLED) return;
+  await call(['SET', TRAFFIC_KEY, JSON.stringify(v)]);
+}
+async function loadTraffic() {
+  if (!ENABLED) return null;
+  const v = await call(['GET', TRAFFIC_KEY]);
+  try { return v ? JSON.parse(v) : null; } catch (e) { return null; }
+}
 // 各王在全站被擊殺的總次數 { 王圖片: 次數 }
 const GLOBAL_KILLS_KEY = PREFIX + 'global_kills';
 async function saveGlobalKills(v) {
@@ -292,4 +303,4 @@ async function loadBragDaily() {
   try { return v ? JSON.parse(v) : null; } catch (e) { return null; }
 }
 
-module.exports = { ENABLED, saveGlobalKills, loadGlobalKills, saveWeekLoot, loadWeekLoot, saveBragDaily, loadBragDaily, saveAnnouncement, loadAnnouncement, setNickOwner, delNickOwner, loadNickOwners, saveSupporters, loadSupporters, saveBossRanges, loadBossRanges, saveGlobalMuted, loadGlobalMuted, init, loadAll, markDirty, flush, removeRoom, pushKillPoint, loadKillPoints, clearKillPoints, markLootDirty, loadLootStats, clearLootStats, saveDonations, loadDonations, saveDonatePending, loadDonatePending, GLOBAL_KP_MAX, loadedFromLegacy: false };
+module.exports = { ENABLED, saveTraffic, loadTraffic, saveGlobalKills, loadGlobalKills, saveWeekLoot, loadWeekLoot, saveBragDaily, loadBragDaily, saveAnnouncement, loadAnnouncement, setNickOwner, delNickOwner, loadNickOwners, saveSupporters, loadSupporters, saveBossRanges, loadBossRanges, saveGlobalMuted, loadGlobalMuted, init, loadAll, markDirty, flush, removeRoom, pushKillPoint, loadKillPoints, clearKillPoints, markLootDirty, loadLootStats, clearLootStats, saveDonations, loadDonations, saveDonatePending, loadDonatePending, GLOBAL_KP_MAX, loadedFromLegacy: false };

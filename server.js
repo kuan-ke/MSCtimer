@@ -11,6 +11,100 @@ const server = http.createServer(app);
 // perMessageDeflate：只壓縮 1KB 以上的訊息（例如進房時的完整狀態），小的變動訊息不壓縮
 const io = new Server(server, { perMessageDeflate: { threshold: 1024 } });
 
+// ---------- 流量統計（管理者「📶 流量統計」）：記錄伺服器「送出」的資料量 ----------
+// HTTP：每個請求實際送出的位元組（含標頭，壓縮後的大小）；WebSocket：每則 Socket.IO 訊息（1KB 以上的訊息估算壓縮後大小）
+let traffic = { since: Date.now(), http: {}, files: {}, ws: {}, days: {} };
+let trafficDirty = false;
+const TRAFFIC_FILES_MAX = 300;
+const BOT_UA = /bot|crawl|spider|slurp|facebookexternalhit|facebot|line|discord|slack|telegram|twitter|whatsapp|skype|preview|uptime|monitor|pingdom|curl|wget|python|go-http|headless/i;
+function trafficDay() { return new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10); }
+function trafficAddDay(kind, bytes) {
+  const d = trafficDay();
+  const day = traffic.days[d] || (traffic.days[d] = { h: 0, w: 0 });
+  day[kind] += bytes;
+  const keys = Object.keys(traffic.days);
+  if (keys.length > 35) keys.sort().slice(0, keys.length - 35).forEach((k) => delete traffic.days[k]);
+}
+function trafficHttpCat(p) {
+  if (p.startsWith('/socket.io/')) return /\.js(\.map)?$/.test(p) ? 'Socket.IO 程式庫（socket.io.min.js）' : 'Socket.IO 連線（輪詢）';
+  if (p === '/' || p === '/index.html') return '網頁（index.html）';
+  if (p === '/client.js') return '程式（client.js）';
+  if (p === '/style.css') return '樣式（style.css）';
+  if (p === '/admin.js') return '管理者程式（admin.js）';
+  if (p === '/drops/drops.json') return '戰利品資料（drops.json）';
+  if (p.startsWith('/drops/icons/')) return '戰利品圖示';
+  if (p.startsWith('/images/thumbs/')) return '王的縮圖（images/thumbs）';
+  if (p.startsWith('/images/og-image')) return '分享預覽圖（og-image.png）';
+  if (/^\/images\/(icon-|apple-touch|favicon)/.test(p) || p === '/favicon.ico' || p.endsWith('.webmanifest')) return '網站圖示（icon／favicon）';
+  if (/^\/images\/(opay|ecpay)-qr/.test(p)) return '贊助 QR Code';
+  if (p.startsWith('/images/')) return '王的圖片（images）';
+  if (p.startsWith('/sounds/')) return '擊殺音效（sounds）';
+  if (p === '/healthz') return '健康檢查（/healthz）';
+  if (p === '/robots.txt' || p === '/sitemap.xml') return '搜尋引擎檔案';
+  return '其他';
+}
+function meterHttp(req, res) {
+  let bytes = 0;
+  const w = res.write;
+  const e = res.end;
+  const len = (chunk, enc) => (Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(String(chunk), typeof enc === 'string' ? enc : undefined));
+  res.write = function (chunk, enc) { if (chunk && typeof chunk !== 'function') bytes += len(chunk, enc); return w.apply(this, arguments); };
+  res.end = function (chunk, enc) { if (chunk && typeof chunk !== 'function') bytes += len(chunk, enc); return e.apply(this, arguments); };
+  res.on('finish', () => {
+    try {
+      const total = bytes + (res._header ? Buffer.byteLength(res._header) : 0);
+      const p = (req.url || '/').split('?')[0];
+      const bot = BOT_UA.test(req.headers['user-agent'] || '');
+      const cat = (bot ? '🤖 機器人：' : '') + trafficHttpCat(p);
+      const c = traffic.http[cat] || (traffic.http[cat] = { n: 0, b: 0, n304: 0 });
+      c.n++; c.b += total; if (res.statusCode === 304) c.n304++;
+      if (!p.startsWith('/socket.io/') || /\.js$/.test(p)) {
+        const fk = p.length > 80 ? p.slice(0, 80) : p;
+        let f = traffic.files[fk];
+        if (!f && Object.keys(traffic.files).length < TRAFFIC_FILES_MAX) f = traffic.files[fk] = { n: 0, b: 0 };
+        if (f) { f.n++; f.b += total; }
+      }
+      trafficAddDay('h', total);
+      trafficDirty = true;
+    } catch (err) { /* 統計失敗不影響網站 */ }
+  });
+}
+// 放在所有處理之前（包含 Socket.IO 自己處理的 /socket.io/ 請求）
+server.prependListener('request', meterHttp);
+function meterWsPacket(packet) {
+  try {
+    let ev = '（連線維持 ping）';
+    let size = 1;
+    if (packet.type === 'message') {
+      const d = packet.data;
+      if (typeof d === 'string') {
+        size = Buffer.byteLength(d) + 1;
+        // Socket.IO 封包：2 = 事件 2["名稱",...]、3 = 回覆 callback 3編號[...]
+        const m = /^2(?:\/[^,]*,)?\d*\["([^"]{1,40})"/.exec(d);
+        ev = m ? m[1] : (d[0] === '3' ? '（回覆 callback）' : '（連線控制）');
+        if (size > 1024) size = zlib.deflateRawSync(d).length + 1; // 大訊息實際會壓縮再送
+      } else if (d && d.length) { size = d.length; ev = '（二進位）'; }
+    } else if (packet.type !== 'ping' && packet.type !== 'pong') {
+      ev = '（連線控制）';
+    }
+    size += 2; // WebSocket 封包標頭
+    const c = traffic.ws[ev] || (traffic.ws[ev] = { n: 0, b: 0 });
+    c.n++; c.b += size;
+    trafficAddDay('w', size);
+    trafficDirty = true;
+  } catch (err) { /* ignore */ }
+}
+if (io.engine && typeof io.engine.on === 'function') {
+  io.engine.on('connection', (sock) => {
+    sock.on('packetCreate', (packet) => { if (sock.transport && sock.transport.name === 'websocket') meterWsPacket(packet); });
+  });
+}
+setInterval(() => {
+  if (!trafficDirty) return;
+  trafficDirty = false;
+  persist.saveTraffic(traffic).catch((e) => console.error('[保存] 流量統計失敗：', e.message));
+}, 5 * 60 * 1000);
+
 const PORT = process.env.PORT || 3000;
 const CHANNEL_COUNT = 60;
 const APPEAR_HOLD_MS = 10 * 60 * 1000; // 超過最大值後，「出現中」再保留 10 分鐘才消失
@@ -1865,6 +1959,17 @@ io.on('connection', (socket) => {
     cb({ users, lobby: lobbyIds.size, site: siteOnlineCount(), rooms: new Set(users.map((u) => u.room)).size, now: Date.now() });
   });
 
+  // 管理者：流量統計 / 歸零
+  socket.on('adminTraffic', (cb) => {
+    if (typeof cb !== 'function' || !socket.data.isAdmin) return;
+    cb({ ...traffic, now: Date.now(), wsConnections: io.engine && io.engine.clientsCount });
+  });
+  socket.on('adminTrafficReset', (cb) => {
+    if (!socket.data.isAdmin) return;
+    traffic = { since: Date.now(), http: {}, files: {}, ws: {}, days: {} };
+    persist.saveTraffic(traffic).catch(() => {});
+    if (typeof cb === 'function') cb({ ok: true });
+  });
   socket.on('adminKillStats', (cb) => {
     if (typeof cb !== 'function' || !socket.data.isAdmin) return;
     cb(kpStats());
@@ -2254,6 +2359,8 @@ async function start() {
       try {
         globalKillPoints = await persist.loadKillPoints();
         globalLoot = (await persist.loadLootStats()) || {};
+        const tf = await persist.loadTraffic();
+        if (tf && tf.since && tf.http && tf.ws) traffic = { files: {}, days: {}, ...tf };
         const gk = await persist.loadGlobalKills();
         if (gk && typeof gk === 'object') globalKills = gk;
         else {

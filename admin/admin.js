@@ -190,6 +190,11 @@
     annBtn.style.marginLeft = '6px';
     annBtn.addEventListener('click', openAnnounce);
     panel.appendChild(annBtn);
+    const trafBtn = el('button', 'admin-stats-btn', '📶 流量統計');
+    trafBtn.title = '哪些檔案、哪些功能用掉了伺服器流量（Render 的 Bandwidth）';
+    trafBtn.style.marginLeft = '6px';
+    trafBtn.addEventListener('click', openTraffic);
+    panel.appendChild(trafBtn);
     const supBtn = el('button', 'admin-stats-btn', '⭐ 贊助者管理');
     supBtn.title = '設定哪些暱稱是贊助者、解除暱稱綁定';
     supBtn.style.marginLeft = '6px';
@@ -458,6 +463,116 @@
       annOverlay.appendChild(box);
       document.body.appendChild(annOverlay);
       ta.focus();
+    });
+  }
+
+  // ---------- 流量統計 ----------
+  let trafOverlay = null;
+  function closeTraffic() { if (trafOverlay) { trafOverlay.remove(); trafOverlay = null; } }
+  function fmtBytes(b) {
+    if (b >= 1073741824) return (b / 1073741824).toFixed(2) + ' GB';
+    if (b >= 1048576) return (b / 1048576).toFixed(1) + ' MB';
+    if (b >= 1024) return (b / 1024).toFixed(1) + ' KB';
+    return Math.round(b) + ' B';
+  }
+  function trafTable(head, rows) {
+    const t = el('table', 'kps-table');
+    const hr = el('tr');
+    head.forEach((h) => hr.appendChild(el('th', '', h)));
+    t.appendChild(hr);
+    rows.forEach((r) => {
+      const tr = el('tr');
+      r.forEach((c, i) => {
+        const td = el('td', i === 0 ? 'name' : '', '');
+        if (c && typeof c === 'object' && c.bar !== undefined) {
+          td.style.textAlign = 'left';
+          const w = el('div');
+          w.style.cssText = 'display:flex;align-items:center;gap:6px';
+          const bar = el('div');
+          bar.style.cssText = `height:8px;border-radius:4px;background:#a78bfa;width:${Math.max(1, Math.round(c.bar * 120))}px`;
+          w.append(bar, el('span', '', c.text));
+          td.appendChild(w);
+        } else td.textContent = c;
+        tr.appendChild(td);
+      });
+      t.appendChild(tr);
+    });
+    return t;
+  }
+  function openTraffic() {
+    if (!A.isAdmin) return;
+    A.socket.emit('adminTraffic', (res) => {
+      if (!res || !res.http) return;
+      closeTraffic();
+      trafOverlay = el('div', 'kps-overlay');
+      trafOverlay.addEventListener('click', (e) => { if (e.target === trafOverlay) closeTraffic(); });
+      const box = el('div', 'kps-box');
+      const head = el('div', 'kps-head');
+      head.appendChild(el('h3', '', '📶 流量統計'));
+      const reload = el('button', '', '重新整理');
+      reload.addEventListener('click', openTraffic);
+      const reset = el('button', 'danger', '歸零');
+      reset.addEventListener('click', () => {
+        if (!confirm('確定要把流量統計歸零、重新開始記錄嗎？')) return;
+        A.socket.emit('adminTrafficReset', () => { showToast('流量統計已歸零'); openTraffic(); });
+      });
+      const close = el('button', '', '關閉');
+      close.addEventListener('click', closeTraffic);
+      head.append(reload, reset, close);
+      box.appendChild(head);
+      const body = el('div', 'kps-body');
+
+      const httpRows = Object.entries(res.http).map(([k, v]) => ({ k, ...v }));
+      const wsRows = Object.entries(res.ws).map(([k, v]) => ({ k, ...v }));
+      const httpTotal = httpRows.reduce((a, r) => a + r.b, 0);
+      const wsTotal = wsRows.reduce((a, r) => a + r.b, 0);
+      const total = httpTotal + wsTotal;
+      const days = Math.max((res.now - res.since) / 86400000, 1 / 24);
+      const perDay = total / days;
+      body.appendChild(el('div', 'kps-summary',
+        `從 ${new Date(res.since).toLocaleString()} 開始記錄（約 ${days >= 1 ? days.toFixed(1) + ' 天' : Math.round(days * 24) + ' 小時'}），伺服器共送出 ${fmtBytes(total)}：` +
+        `檔案／網頁 ${fmtBytes(httpTotal)}（${total ? Math.round(httpTotal / total * 100) : 0}%）、即時同步 WebSocket ${fmtBytes(wsTotal)}（${total ? Math.round(wsTotal / total * 100) : 0}%）。` +
+        `平均每天 ${fmtBytes(perDay)}，照這樣一個月約 ${fmtBytes(perDay * 30)}。目前連線數：${res.wsConnections ?? '—'}。`));
+      body.appendChild(el('div', 'kps-summary', '※ 這是伺服器這邊算的估計值（含 HTTP 標頭、壓縮後大小），跟 Render 的 Bandwidth 可能有些差距；統計每 5 分鐘存一次，伺服器重開時最多少記 5 分鐘。'));
+
+      // 每天
+      const dayKeys = Object.keys(res.days || {}).sort().reverse().slice(0, 14);
+      if (dayKeys.length) {
+        body.appendChild(el('h4', '', '📅 每天'));
+        const maxDay = Math.max(...dayKeys.map((d) => res.days[d].h + res.days[d].w), 1);
+        body.appendChild(trafTable(['日期', '合計', '檔案／網頁', 'WebSocket'], dayKeys.map((d) => {
+          const v = res.days[d];
+          return [d.slice(5).replace('-', '/'), { bar: (v.h + v.w) / maxDay, text: fmtBytes(v.h + v.w) }, fmtBytes(v.h), fmtBytes(v.w)];
+        })));
+      }
+
+      // 檔案／網頁分類
+      body.appendChild(el('h4', '', '🌐 檔案／網頁（依類別）'));
+      httpRows.sort((a, b) => b.b - a.b);
+      body.appendChild(trafTable(['類別', '用量', '佔全部', '請求次數', '其中沒變（304）', '平均每次'], httpRows.map((r) => [
+        r.k, { bar: total ? r.b / total : 0, text: fmtBytes(r.b) }, total ? (r.b / total * 100).toFixed(1) + '%' : '—', r.n.toLocaleString(), (r.n304 || 0).toLocaleString(), fmtBytes(r.b / Math.max(r.n, 1))
+      ])));
+
+      // 最吃流量的檔案
+      const files = Object.entries(res.files || {}).map(([k, v]) => ({ k, ...v })).sort((a, b) => b.b - a.b).slice(0, 20);
+      if (files.length) {
+        body.appendChild(el('h4', '', '📄 最吃流量的檔案（前 20 名）'));
+        body.appendChild(trafTable(['檔案', '用量', '佔全部', '請求次數', '平均每次'], files.map((r) => [
+          r.k, { bar: total ? r.b / total : 0, text: fmtBytes(r.b) }, total ? (r.b / total * 100).toFixed(1) + '%' : '—', r.n.toLocaleString(), fmtBytes(r.b / Math.max(r.n, 1))
+        ])));
+      }
+
+      // WebSocket 事件
+      if (wsRows.length) {
+        body.appendChild(el('h4', '', '⚡ 即時同步（WebSocket 訊息，前 25 名）'));
+        wsRows.sort((a, b) => b.b - a.b);
+        body.appendChild(trafTable(['訊息', '用量', '佔全部', '次數', '平均每則'], wsRows.slice(0, 25).map((r) => [
+          r.k, { bar: total ? r.b / total : 0, text: fmtBytes(r.b) }, total ? (r.b / total * 100).toFixed(1) + '%' : '—', r.n.toLocaleString(), fmtBytes(r.b / Math.max(r.n, 1))
+        ])));
+      }
+      box.appendChild(body);
+      trafOverlay.appendChild(box);
+      document.body.appendChild(trafOverlay);
     });
   }
 
