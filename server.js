@@ -281,7 +281,10 @@ app.get('/drops/icons/:file', (req, res) => {
   res.set('Cache-Control', 'public, max-age=604800');
   res.send(Buffer.from(b64, 'base64'));
 });
-// 圖片等其他靜態檔：瀏覽器快取 1 天（之後只確認有沒有更新）
+// 王的圖片、縮圖、音效幾乎不會改：瀏覽器快取 30 天（要換圖時把 client.js 的 ASSET_V 加 1，網址變了就會重新下載）
+app.use('/images', express.static(path.join(__dirname, 'public', 'images'), { index: false, maxAge: '30d' }));
+app.use('/sounds', express.static(path.join(__dirname, 'public', 'sounds'), { index: false, maxAge: '30d' }));
+// 其他靜態檔：瀏覽器快取 1 天（之後只確認有沒有更新）
 app.use(express.static(path.join(__dirname, 'public'), { index: false, maxAge: '1d' }));
 
 let nextTabId = 1;
@@ -513,7 +516,7 @@ function scheduleAdminRooms() {
     for (const [, s] of io.sockets.sockets) {
       if (s.data.isAdmin) sendAdminRooms(s);
     }
-  }, 500);
+  }, 5000); // 管理者的房間列表最多每 5 秒更新一次（省流量）
 }
 
 function isMuted(room, socket) {
@@ -1182,7 +1185,7 @@ function scheduleSiteOnline() {
     if (n === siteOnlineLast) return;
     siteOnlineLast = n;
     io.emit('site:online', n);
-  }, 1500);
+  }, 30000); // 最多每 30 秒廣播一次（人數變動很頻繁，每次都廣播給全站很耗流量；新進站的人連線時會直接拿到最新數字）
 }
 
 // ---------- 管理者公告（全站，所有人一進站就看得到；重新部署後仍保留） ----------

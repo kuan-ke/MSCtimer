@@ -1,3 +1,5 @@
+// 圖片／音效的版本號：伺服器讓瀏覽器快取 30 天，換圖或換音效時把這個數字加 1，大家才會重新下載
+const ASSET_V = 2;
 // 直接用 WebSocket 連線（省掉一開始好幾次 HTTP 輪詢的流量）；連不上 WebSocket 的環境才退回 HTTP 輪詢
 const socket = io({ transports: ['websocket', 'polling'], tryAllTransports: true });
 
@@ -102,7 +104,7 @@ let showRoomPassword = false;
 // 隊長圖示（取代原本的 👑）
 function captainIcon(doc) {
   const img = (doc || document).createElement('img');
-  img.src = 'images/captain.png';
+  img.src = `images/captain.png?v=${ASSET_V}`;
   img.className = 'cap-icon';
   img.alt = '隊長';
   img.title = '隊長';
@@ -502,7 +504,7 @@ function showBragIn(d, b, left) {
     // 擊殺里程碑：「XX在本站被擊殺了 N 次！」
     box.classList.add('milestone');
     const ic = d.createElement('img');
-    ic.src = `images/${b.image}`;
+    ic.src = `images/${b.image}?v=${ASSET_V}`;
     ic.alt = '';
     ic.onerror = () => ic.remove();
     const t1 = d.createElement('span');
@@ -1088,12 +1090,12 @@ function makeBossIcon(doc, image, name) {
 }
 
 function imageUrl(file) {
-  return new URL(`images/${file}`, window.location.href).href;
+  return new URL(`images/${file}?v=${ASSET_V}`, window.location.href).href;
 }
 
 // 小縮圖（分頁、進行中頻道列）用王的臉部特寫；沒有特寫圖時退回原本的大圖
 function thumbUrl(file) {
-  return new URL(`images/thumbs/${file}`, window.location.href).href;
+  return new URL(`images/thumbs/${file}?v=${ASSET_V}`, window.location.href).href;
 }
 
 function renderTabsInto(target, compact) {
@@ -1177,7 +1179,7 @@ function renderBossBanner() {
   if (!tab) return;
   bossNameEl.textContent = tab.name;
   if (tab.image) {
-    bossImageEl.src = `images/${tab.image}`;
+    bossImageEl.src = `images/${tab.image}?v=${ASSET_V}`;
     bossImageEl.alt = tab.name;
     bossImageEl.classList.remove('hidden');
   } else {
@@ -1279,7 +1281,7 @@ function openDrops() {
     dropsCurrent = boss;
     dropsFilter = '全部';
     document.getElementById('dropsSearch').value = '';
-    document.getElementById('dropsBossImg').src = `images/${tab.image}`;
+    document.getElementById('dropsBossImg').src = `images/${tab.image}?v=${ASSET_V}`;
     document.getElementById('dropsBossName').textContent = boss.name;
     renderDrops();
     document.getElementById('dropsOverlay').classList.remove('hidden');
@@ -2530,7 +2532,7 @@ function playKillSound(image, kindFromServer) {
   const key = image && BOSS_SOUNDS[String(image).split('/').pop()];
   if (!key) return; // 自訂的王沒有音效
   const kind = kindFromServer === 'die' || kindFromServer === 'damage' ? kindFromServer : (Math.random() < 0.8 ? 'damage' : 'die');
-  const src = `/sounds/${key}-${kind}.mp3`;
+  const src = `/sounds/${key}-${kind}.mp3?v=${ASSET_V}`;
   try {
     if (!killAudioCache[src]) { killAudioCache[src] = new Audio(src); killAudioCache[src].preload = 'auto'; }
     const a = killAudioCache[src].cloneNode();
@@ -2601,9 +2603,9 @@ function playBeep(freq) {
 // ---------- 贊助 ----------
 // 收款連結：網址留空 = 還在審核中（按鈕會顯示「審核中」且不能點）
 const DONATE_LINKS = [
-  { name: '歐付寶', icon: '🟢', url: 'https://p.opay.tw/SQau5', qr: 'images/opay-qr.png', opayId: '2506114' },
+  { name: '歐付寶', icon: '🟢', url: 'https://p.opay.tw/SQau5', qr: `images/opay-qr.png?v=${ASSET_V}`, opayId: '2506114' },
   // 加上 pending: true 會變成「審核中」（按鈕灰掉不能按）
-  { name: '綠界', icon: '🟩', url: 'https://p.ecpay.com.tw/060CC2F', qr: 'images/ecpay-qr.png', qrPhone: true },
+  { name: '綠界', icon: '🟩', url: 'https://p.ecpay.com.tw/060CC2F', qr: `images/ecpay-qr.png?v=${ASSET_V}`, qrPhone: true },
   // PayPal 暫時停用（目前沒有海外贊助）。要恢復的話把下一行最前面的 // 拿掉
   // { name: 'PayPal', label: 'PayPal（海外信用卡）', icon: '💳', url: 'https://www.paypal.com/ncp/payment/LWHNMPF397KA4' }
 ];

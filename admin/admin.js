@@ -699,9 +699,9 @@
       res.list.forEach((b) => {
         const tr = el('tr');
         const nameTd = el('td', 'name');
-        const ic = el('img'); ic.src = 'images/thumbs/' + b.image; ic.alt = '';
+        const ic = el('img'); ic.src = 'images/thumbs/' + b.image + '?v=2'; ic.alt = '';
         ic.style.cssText = 'width:22px;height:22px;vertical-align:middle;margin-right:6px';
-        ic.onerror = () => { ic.onerror = null; ic.src = 'images/' + b.image; };
+        ic.onerror = () => { ic.onerror = null; ic.src = 'images/' + b.image + '?v=2'; };
         nameTd.appendChild(ic); nameTd.appendChild(document.createTextNode(b.name));
         tr.appendChild(nameTd);
         const mk = (v) => { const i = el('input'); i.type = 'number'; i.min = '1'; i.max = '1440'; i.step = '1'; i.value = v; i.style.width = '70px'; return i; };
