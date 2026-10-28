@@ -516,9 +516,21 @@
         if (!confirm('確定要把流量統計歸零、重新開始記錄嗎？')) return;
         A.socket.emit('adminTrafficReset', () => { showToast('流量統計已歸零'); openTraffic(); });
       });
+      const dl = el('button', '', '⬇️ 下載');
+      dl.title = '下載完整的流量統計（JSON 檔），可以直接傳給別人分析';
+      dl.addEventListener('click', () => {
+        const d = new Date(res.now + 8 * 3600000).toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
+        const blob = new Blob([JSON.stringify({ ...res, exportedAt: new Date(res.now).toISOString() }, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `msctimer-traffic-${d}.json`;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+      });
       const close = el('button', '', '關閉');
       close.addEventListener('click', closeTraffic);
-      head.append(reload, reset, close);
+      head.append(reload, dl, reset, close);
       box.appendChild(head);
       const body = el('div', 'kps-body');
 

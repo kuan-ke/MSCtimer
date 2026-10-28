@@ -929,12 +929,13 @@ function lootCsv() {
   return '\ufeff' + lines.join('\r\n');
 }
 
-// ---------- 每週戰利品統計（所有房間總和）：每週一 00:00（台灣時間）重新開始 ----------
-// weekLoot = { w: 'YYYY-MM-DD'（該週週一）, r: { 房間代號: { 王圖片: { k: 本週擊殺, i: { 道具編號: 本週掉落 } } } } }
+// ---------- 每週戰利品統計（所有房間總和）：每週四 08:00（台灣時間）重新開始 ----------
+// weekLoot = { w: 'YYYY-MM-DD'（該週週四的日期）, r: { 房間代號: { 王圖片: { k: 本週擊殺, i: { 道具編號: 本週掉落 } } } } }
 // 只有「歷史統計有計入」的房間／王（擊殺達門檻、沒被排除）才會算進本週機率
+// 台灣時間週四 08:00 剛好是 UTC 週四 00:00，所以直接用 UTC 日期往回找到週四
 function weekKey(t) {
-  const d = new Date(t + 8 * 3600000);
-  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  const d = new Date(t);
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 3) % 7)); // 週四 = 4
   return d.toISOString().slice(0, 10);
 }
 let weekLoot = { w: weekKey(Date.now()), r: {} };
@@ -2370,7 +2371,11 @@ async function start() {
           console.log('[擊殺] 全站擊殺次數起始值：', JSON.stringify(globalKills));
         }
         const wl = await persist.loadWeekLoot();
-        if (wl && wl.w && wl.r && typeof wl.r === 'object') weekLoot = wl;
+        if (wl && wl.w && wl.r && typeof wl.r === 'object') {
+          // 舊版是「週一」起算：資料保留，改掛到目前這一週（週四 08:00 起算）
+          if (new Date(wl.w + 'T00:00:00Z').getUTCDay() === 1 && weekKey(Date.parse(wl.w + 'T00:00:00Z')) === weekKey(Date.now())) wl.w = weekKey(Date.now());
+          weekLoot = wl;
+        }
         weekRoll();
         donations = (await persist.loadDonations()) || [];
         donatePending = (await persist.loadDonatePending()) || [];

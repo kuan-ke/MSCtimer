@@ -1,4 +1,5 @@
-const socket = io();
+// 直接用 WebSocket 連線（省掉一開始好幾次 HTTP 輪詢的流量）；連不上 WebSocket 的環境才退回 HTTP 輪詢
+const socket = io({ transports: ['websocket', 'polling'], tryAllTransports: true });
 
 const CHANNEL_COUNT = 60;
 // 觸控裝置（手機 / 平板）：長按代替右鍵
@@ -1267,7 +1268,7 @@ function renderRatesSum() {
   const wk = lootRatesData.week ? lootRatesData.week.slice(5).replace('-', '/') : '';
   el.innerHTML = '';
   const add = (txt, bold) => { const n = bold ? document.createElement('b') : document.createTextNode(txt); if (bold) n.textContent = txt; el.appendChild(n); };
-  add('📊 全站統計　歷史：擊殺 '); add(r.all.k.toLocaleString(), true); add(` 次（${r.all.rooms} 間房）　本週（${wk} 起）：擊殺 `); add(r.week.k.toLocaleString(), true); add(' 次');
+  add('📊 全站統計　歷史：擊殺 '); add(r.all.k.toLocaleString(), true); add(` 次（${r.all.rooms} 間房）　本週（${wk} 08:00 起）：擊殺 `); add(r.week.k.toLocaleString(), true); add(' 次');
 }
 function openDrops() {
   const tab = getCurrentTab();
