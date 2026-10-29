@@ -1049,6 +1049,7 @@ body.is-muted #pipBtn { display: none !important; }
     conic-gradient(from var(--vip-a), #f43f5e, #fb923c, #facc15, #4ade80, #22d3ee, #818cf8, #e879f9, #f43f5e) border-box;
   animation: vipSpin 3s linear infinite;
   white-space: nowrap; vertical-align: middle;
+  color: #f8fafc; /* 框裡是深色底：字固定用淺色（不跟著格子變色，例如重生區間的綠底深字） */
 }
 .vip-name .vip-star { color: #fbbf24; text-shadow: 0 0 4px rgba(251, 191, 36, .9); font-size: .95em; }
 @keyframes vipSpin { to { --vip-a: 360deg; } }
