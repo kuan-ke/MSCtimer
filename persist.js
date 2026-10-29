@@ -88,6 +88,7 @@ async function loadAll() {
 
 function markDirty(room) {
   if (!ENABLED || !room) return;
+  if (room._follower) return; // 重新部署交接期間：這間房間的最新資料可能還在舊伺服器，先不要覆蓋
   dirty.set(room.id, room);
   if (!timer) timer = setTimeout(() => { timer = null; flush().catch(() => {}); }, SAVE_DELAY_MS);
 }
@@ -118,6 +119,13 @@ async function flush() {
     if (lootWas) lootDirty = true;
     if (!timer) timer = setTimeout(() => { timer = null; flush().catch(() => {}); }, 15000);
   }
+}
+
+// 讀回單一房間（重新部署交接時，用來拿舊伺服器剛存的最新資料）
+async function loadRoom(roomId) {
+  if (!ENABLED) return null;
+  const v = await call(['GET', PREFIX + 'room:' + roomId]);
+  try { return v ? JSON.parse(v) : null; } catch (e) { return null; }
 }
 
 async function removeRoom(roomId) {
@@ -303,4 +311,4 @@ async function loadBragDaily() {
   try { return v ? JSON.parse(v) : null; } catch (e) { return null; }
 }
 
-module.exports = { ENABLED, saveTraffic, loadTraffic, saveGlobalKills, loadGlobalKills, saveWeekLoot, loadWeekLoot, saveBragDaily, loadBragDaily, saveAnnouncement, loadAnnouncement, setNickOwner, delNickOwner, loadNickOwners, saveSupporters, loadSupporters, saveBossRanges, loadBossRanges, saveGlobalMuted, loadGlobalMuted, init, loadAll, markDirty, flush, removeRoom, pushKillPoint, loadKillPoints, clearKillPoints, markLootDirty, loadLootStats, clearLootStats, saveDonations, loadDonations, saveDonatePending, loadDonatePending, GLOBAL_KP_MAX, loadedFromLegacy: false };
+module.exports = { ENABLED, loadRoom, saveTraffic, loadTraffic, saveGlobalKills, loadGlobalKills, saveWeekLoot, loadWeekLoot, saveBragDaily, loadBragDaily, saveAnnouncement, loadAnnouncement, setNickOwner, delNickOwner, loadNickOwners, saveSupporters, loadSupporters, saveBossRanges, loadBossRanges, saveGlobalMuted, loadGlobalMuted, init, loadAll, markDirty, flush, removeRoom, pushKillPoint, loadKillPoints, clearKillPoints, markLootDirty, loadLootStats, clearLootStats, saveDonations, loadDonations, saveDonatePending, loadDonatePending, GLOBAL_KP_MAX, loadedFromLegacy: false };

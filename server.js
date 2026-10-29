@@ -112,7 +112,9 @@ const MAX_KILL_POINTS = 100; // 「時間點」紀錄最多保留筆數
 const MAX_LOG = 500; // 每個房間的操作紀錄最多保留筆數（避免伺服器記憶體無限成長）
 // 房間密碼規則：剛好 6 個字元，只能是英文大小寫或數字（大小寫視為不同）
 const PASSWORD_RE = /^[A-Za-z0-9]{6}$/;
-const MAX_ROOM_USERS = 10; // 每間房間最多幾個人（同一個瀏覽器開多個分頁只算一人；管理者不計入）
+const MAX_ROOM_USERS = 10; // 每間房間基本上限幾個人（同一個瀏覽器開多個分頁只算一人；管理者不計入）
+const ROOM_BOOST_PER = 2;   // 每位「為房間提升上限」的本月贊助者 +2 人
+const ROOM_CAP_MAX = 20;    // 房間人數上限最多 20 人
 // 房間沒有任何人在線、也沒有任何進行中的 CH 超過這段時間，就自動刪除（釋放記憶體）
 const EMPTY_ROOM_TTL_MS = 6 * 60 * 60 * 1000;
 
@@ -581,9 +583,18 @@ function transferNameState(room, targetClientId, oldName, newName) {
 }
 
 // 房間資訊（隊長名稱）給房間內所有人
+// ---------- 贊助者提升房間人數上限 ----------
+// room.boosters：小寫暱稱 -> 原始暱稱。贊助者在房間裡自己決定要不要 +2；只有「本月贊助者」才算數（下個月自動失效）
+function roomBoosters(room) {
+  if (!room.boosters) room.boosters = new Map();
+  return Array.from(room.boosters.entries()).filter(([k]) => isSupporterName(k)).map(([, v]) => v);
+}
+function roomCap(room) {
+  return Math.min(ROOM_CAP_MAX, MAX_ROOM_USERS + ROOM_BOOST_PER * roomBoosters(room).length);
+}
 function broadcastRoomInfo(room) {
   persist.markDirty(room);
-  io.to(room.id).emit('room:info', { captainName: room.captainName });
+  io.to(room.id).emit('room:info', { captainName: room.captainName, cap: roomCap(room), base: MAX_ROOM_USERS, max: ROOM_CAP_MAX, per: ROOM_BOOST_PER, boosters: roomBoosters(room) });
 }
 
 // 隊長看到的「被隊長禁止操作」名單
@@ -679,16 +690,46 @@ function donateMonths() {
   set.add(monthKey(Date.now()));
   return Array.from(set).sort().reverse();
 }
+let donationsTouched = false;   // 這台伺服器啟動後自己改過贊助紀錄（交接時就不再從資料庫覆蓋）
+let supportersTouched = false;
+let donatePendingTouched = false;
 function saveDonations() {
+  donationsTouched = true;
   persist.saveDonations(donations).catch((e) => console.error('[贊助] 儲存失敗：', e.message));
   grantSupportersFromDonations();
+  broadcastDonateGoal();
 }
+// ---------- 本月贊助目標進度條（所有人都看得到） ----------
+const DONATE_GOAL = Math.max(1, Number(process.env.DONATE_GOAL) || 999); // 每月目標（NT$），可用環境變數 DONATE_GOAL 調整
+function donateGoal() {
+  const cur = monthKey(Date.now());
+  const total = donations.reduce((a, d) => a + (monthKey(d.at) === cur ? (Number(d.amount) || 0) : 0), 0);
+  return { month: cur, total, goal: DONATE_GOAL };
+}
+function broadcastDonateGoal() { try { io.emit('donate:goal', donateGoal()); } catch (e) { /* ignore */ } }
 
 // ---------- 贊助者（當月贊助累計 NT$50 以上，或管理者手動設定；只在當月有效，下個月重置） ----------
 // 贊助者以暱稱判斷（暱稱綁定瀏覽器，見下方「暱稱綁定」）；管理者一律視為贊助者
 const SUPPORTER_MIN = 50;
 const supporters = new Map(); // 小寫暱稱 -> { name, by: 'donate' | 'admin', at, month: 'YYYY-MM'（台灣時間） }
+// ---------- 贊助者暱稱特效：把本月贊助者的暱稱發給所有人（管理者不在名單裡） ----------
+function vipNames() {
+  const cur = monthKey(Date.now());
+  return Array.from(supporters.values()).filter((e) => e.month === cur).map((e) => e.name);
+}
+let vipTimer = null;
+function broadcastVipNames() {
+  if (vipTimer) return;
+  vipTimer = setTimeout(() => {
+    vipTimer = null;
+    try { io.emit('vip:names', vipNames()); } catch (e) { /* ignore */ }
+    // 贊助者身分變了：有人提升過上限的房間，人數上限跟著更新
+    rooms.forEach((r) => { if (r.boosters && r.boosters.size && r.connectedUsers.size) broadcastRoomInfo(r); });
+  }, 300);
+}
 function saveSupporters() {
+  supportersTouched = true;
+  broadcastVipNames();
   persist.saveSupporters(Array.from(supporters.entries())).catch((e) => console.error('[贊助者] 儲存失敗：', e.message));
 }
 function isSupporterName(name) {
@@ -737,7 +778,7 @@ function checkSupporterMonth() {
   for (const [n, e] of supporters) { if (e.month !== cur) { supporters.delete(n); removed = true; } }
   if (removed) saveSupporters();
   grantSupportersFromDonations();
-  if (!first) refreshPerks(null);
+  if (!first) { refreshPerks(null); broadcastVipNames(); broadcastDonateGoal(); }
 }
 setInterval(checkSupporterMonth, 60000);
 function notifyAdminsSafe(msg) { try { if (typeof notifyAdmins === 'function') notifyAdmins(msg); } catch (e) { /* ignore */ } }
@@ -757,7 +798,7 @@ function claimNick(name, clientId) {
 // 待確認的贊助：[{ id, code, name, amount, msg, via, at }]
 let donatePending = [];
 const DONATE_PENDING_MAX = 300;
-function saveDonatePending() { persist.saveDonatePending(donatePending).catch((e) => console.error('[贊助] 儲存待確認失敗：', e.message)); }
+function saveDonatePending() { donatePendingTouched = true; persist.saveDonatePending(donatePending).catch((e) => console.error('[贊助] 儲存待確認失敗：', e.message)); }
 function newDonateCode() {
   for (let i = 0; i < 50; i++) {
     const c = 'M' + String(Math.floor(1000 + Math.random() * 9000));
@@ -1157,6 +1198,7 @@ setInterval(tick, 1000);
 setInterval(() => {
   const now = Date.now();
   for (const [id, room] of rooms.entries()) {
+    if (room._follower) continue; // 交接期間的房間交給交接流程處理
     if (room.connectedUsers.size === 0 && !roomHasActiveChannels(room) && now - room.lastActive > EMPTY_ROOM_TTL_MS) {
       rooms.delete(id);
       persist.removeRoom(id);
@@ -1195,6 +1237,8 @@ const ANNOUNCE_MAX = 500;
 io.on('connection', (socket) => {
   socket.emit('server:version', SITE_VERSION);
   socket.emit('announce', announcement);
+  socket.emit('vip:names', vipNames());
+  socket.emit('donate:goal', donateGoal());
   socket.on('adminAnnounce', ({ text } = {}, cb) => {
     const reply = typeof cb === 'function' ? cb : () => {};
     if (!socket.data.isAdmin) return reply({ error: '沒有權限' });
@@ -1219,7 +1263,20 @@ io.on('connection', (socket) => {
   scheduleSiteOnline();
   // ---------- 進入房間（暱稱 + 房間密碼） ----------
   // 同一個密碼 = 同一個房間；密碼對應的房間不存在時會自動建立。
+  // 進房：交接期間先確認拿到最新的房間資料再進房
   socket.on('joinRoom', (payload) => {
+    const pw0 = payload && typeof payload.password === 'string' ? payload.password.trim() : '';
+    if (persist.ENABLED && PASSWORD_RE.test(pw0)) {
+      const id = roomIdFromPassword(pw0);
+      const cur = rooms.get(id);
+      if ((cur && cur._follower) || (!cur && inHandoff())) {
+        adoptRoom(id).finally(() => { if (socket.connected) handleJoinRoom(payload); });
+        return;
+      }
+    }
+    handleJoinRoom(payload);
+  });
+  function handleJoinRoom(payload) {
     const { nickname, password, clientId } = payload || {};
     if (typeof clientId === 'string' && /^[A-Za-z0-9-]{8,64}$/.test(clientId)) socket.data.clientId = clientId;
     const trimmedName = (typeof nickname === 'string' ? nickname : '').trim().slice(0, 20);
@@ -1261,8 +1318,9 @@ io.on('connection', (socket) => {
         const alreadyIn = roomUserList(existing).some(
           (u) => !u.hidden && socket.data.clientId && clientIdOf(u.id) === socket.data.clientId && normalizeName(u.name) === normalizeName(trimmedName)
         );
-        if (!alreadyIn && visibleUserCount(existing) >= MAX_ROOM_USERS) {
-          socket.emit('join:error', { field: 'password', code: 'full', message: `這個房間已滿（最多 ${MAX_ROOM_USERS} 人），請稍後再試或換一個房間` });
+        const cap = roomCap(existing);
+        if (!alreadyIn && visibleUserCount(existing) >= cap) {
+          socket.emit('join:error', { field: 'password', code: 'full', message: `這個房間已滿（目前上限 ${cap} 人），請稍後再試或換一個房間${cap < ROOM_CAP_MAX ? '（房間裡的贊助者可以為房間提升人數上限）' : ''}` });
           return;
         }
       }
@@ -1299,6 +1357,27 @@ io.on('connection', (socket) => {
     if (isCaptain(room, socket)) socket.emit('captain:muted', Array.from(room.captainMuted.values()));
     broadcastRoomInfo(room);
     broadcastUsers(room);
+  }
+
+  // 贊助者：為這間房間提升（或取消提升）人數上限
+  socket.on('roomBoost', ({ on } = {}, cb) => {
+    const reply = typeof cb === 'function' ? cb : () => {};
+    const room = getRoom(socket);
+    if (!room || !socket.data.nickname) return reply({ error: '請先進入房間' });
+    if (socket.data.isAdmin) return reply({ error: '管理者不能提升房間上限' });
+    if (!isSupporterName(socket.data.nickname)) return reply({ error: '⭐ 提升房間人數上限是贊助者專屬功能' });
+    if (!room.boosters) room.boosters = new Map();
+    const k = normalizeName(socket.data.nickname);
+    if (on) {
+      if (!room.boosters.has(k) && roomCap(room) >= ROOM_CAP_MAX) return reply({ error: `房間人數上限已經是最高的 ${ROOM_CAP_MAX} 人了` });
+      room.boosters.set(k, socket.data.nickname);
+      addLog(room, `⭐ 贊助者「${socket.data.nickname}」為房間提升了人數上限（目前 ${roomCap(room)} 人）`, 'user');
+    } else {
+      if (!room.boosters.delete(k)) return reply({ ok: true, cap: roomCap(room) });
+      addLog(room, `贊助者「${socket.data.nickname}」取消了提升人數上限（目前 ${roomCap(room)} 人）`, 'user');
+    }
+    broadcastRoomInfo(room);
+    reply({ ok: true, cap: roomCap(room) });
   });
 
   // ---------- 隊長：禁止 / 解除禁止隊員操作（只限這間房間，以暱稱判斷，離線再回來仍有效） ----------
@@ -1368,6 +1447,7 @@ io.on('connection', (socket) => {
     if (typeof cb !== 'function') return;
     const room = getRoom(socket);
     if (!canTransferTimers(room)) return cb({ error: '只有隊長可以匯出計時' });
+    if (!isSupporter(socket)) return cb({ error: '⭐ 匯出時間表是贊助者專屬功能' });
     if (!socket.data.isAdmin) addLog(room, `隊長「${socket.data.nickname}」匯出了目前房間的時間表（文字）`, 'admin');
     cb({ ok: true });
   });
@@ -2230,6 +2310,7 @@ function serializeRoom(room) {
     banned: Array.from(room.bannedNicknames),
     muted: [], // 管理者的禁止名單改成全站共用，另外存（msctimer:muted_global）
     captainMuted: Array.from(room.captainMuted.entries()),
+    boosters: Array.from((room.boosters || new Map()).entries()),
     log: room.activityLog.slice(0, SAVED_LOG_LIMIT),
     kp: room.killPoints,
     loot: room.loot || {},
@@ -2254,6 +2335,7 @@ function restoreRoom(data) {
   if (legacyMutedMerge && Array.isArray(data.muted)) data.muted.forEach(([k, v]) => { if (k && v) globalMuted.set(k, v); });
   room.mutedNicknames = globalMuted;
   room.captainMuted = new Map(data.captainMuted || []);
+  room.boosters = new Map(Array.isArray(data.boosters) ? data.boosters : []);
   room.activityLog = Array.isArray(data.log) ? data.log : [];
   room.killPoints = Array.isArray(data.kp) ? data.kp.slice(0, MAX_KILL_POINTS) : [];
   room.loot = data.loot && typeof data.loot === 'object' ? data.loot : {};
@@ -2297,6 +2379,68 @@ function restoreRoom(data) {
   }));
   room.lastActive = now;
   return room;
+}
+
+// ---------- 重新部署交接：避免「回溯」 ----------
+// 新伺服器啟動時讀回的房間資料，可能比舊伺服器（還在服務中）的新。
+// 1) 有人進入「跟隨者」房間（或交接期間進入本機沒有的房間）時，先從 Upstash 讀最新的再進房
+// 2) 啟動後 1、3、15 分鐘各重新讀一次所有跟隨者房間；15 分鐘後舊伺服器一定已經關了，全部轉為正式
+const BOOT_AT = Date.now();
+const HANDOFF_MS = 15 * 60 * 1000;
+const adoptPending = new Map(); // 房間 id -> Promise
+function inHandoff() { return persist.ENABLED && Date.now() - BOOT_AT < HANDOFF_MS; }
+function replaceWithFresh(id, data, keepFollower) {
+  const fresh = restoreRoom(data);
+  if (!fresh) return null;
+  fresh.tabs.forEach((t) => { if (t.id >= nextTabId) nextTabId = t.id + 1; });
+  if (keepFollower) fresh._follower = true;
+  rooms.set(id, fresh);
+  return fresh;
+}
+function adoptRoom(id) {
+  if (adoptPending.has(id)) return adoptPending.get(id);
+  const p = persist.loadRoom(id).then((data) => {
+    const cur = rooms.get(id);
+    if (cur && !cur._follower) return; // 已經有人接手了
+    if (data && data.id === id) replaceWithFresh(id, data, false);
+    else if (cur) cur._follower = false;
+  }).catch((e) => {
+    console.error('[交接] 讀取房間失敗：', e.message);
+    const cur = rooms.get(id);
+    if (cur) cur._follower = false;
+  }).finally(() => adoptPending.delete(id));
+  adoptPending.set(id, p);
+  return p;
+}
+async function handoffRefresh(final) {
+  try {
+    const all = await persist.loadAll();
+    let n = 0;
+    all.forEach((data) => {
+      if (!data || !data.id) return;
+      const cur = rooms.get(data.id);
+      if (cur && !cur._follower) return; // 已經在這台伺服器上運作的房間不動
+      if (adoptPending.has(data.id)) return;
+      if (replaceWithFresh(data.id, data, !final)) n++;
+    });
+    if (!donationsTouched) { const d = await persist.loadDonations(); if (Array.isArray(d)) donations = d; }
+    if (!donatePendingTouched) { const d = await persist.loadDonatePending(); if (Array.isArray(d)) donatePending = d; }
+    if (!supportersTouched) {
+      const sp = await persist.loadSupporters();
+      if (Array.isArray(sp)) { supporters.clear(); sp.forEach(([k, v]) => { if (k && v && v.name) supporters.set(k, { ...v, month: v.month || monthKey(Date.now()) }); }); }
+    }
+    broadcastVipNames();
+    broadcastDonateGoal();
+    console.log(`[交接] 重新讀取 ${n} 間房間${final ? '（交接結束）' : ''}`);
+  } catch (e) {
+    console.error('[交接] 重新讀取失敗：', e.message);
+  }
+  if (final) rooms.forEach((r) => { r._follower = false; });
+}
+function scheduleHandoffRefresh() {
+  setTimeout(() => handoffRefresh(false), 60 * 1000);
+  setTimeout(() => handoffRefresh(false), 3 * 60 * 1000);
+  setTimeout(() => handoffRefresh(true), HANDOFF_MS);
 }
 
 persist.init(serializeRoom);
@@ -2358,6 +2502,10 @@ async function start() {
       // 從舊名稱讀回的房間，馬上以新名稱存一份
       if (persist.loadedFromLegacy) rooms.forEach((room) => persist.markDirty(room));
       console.log(`[保存] 已從 Upstash 讀回 ${rooms.size} 間房間`);
+      // 重新部署時，新舊伺服器會同時開著一小段時間：舊伺服器上的人還在操作、存檔。
+      // 所以剛讀回的房間先當「跟隨者」：不存檔、不刪除；有人進房時先重新讀一次最新資料再接手（見 adoptRoom）
+      rooms.forEach((r) => { r._follower = true; });
+      scheduleHandoffRefresh();
       if (legacyMutedMerge) { legacyMutedMerge = false; saveGlobalMuted(); rooms.forEach((room) => persist.markDirty(room)); }
       if (globalMuted.size) console.log(`[保存] 全站禁止操作名單：${globalMuted.size} 人`);
       try {

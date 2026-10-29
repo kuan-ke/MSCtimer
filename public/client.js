@@ -1,5 +1,5 @@
 // 圖片／音效的版本號：伺服器讓瀏覽器快取 30 天，換圖或換音效時把這個數字加 1，大家才會重新下載
-const ASSET_V = 2;
+const ASSET_V = 3;
 // 直接用 WebSocket 連線（省掉一開始好幾次 HTTP 輪詢的流量）；連不上 WebSocket 的環境才退回 HTTP 輪詢
 const socket = io({ transports: ['websocket', 'polling'], tryAllTransports: true });
 
@@ -161,6 +161,7 @@ function showNicknameOverlay(errorMsg, opts = {}) {
   document.getElementById('nicknameHint').classList.toggle('nick-warn', !lockName);
 
   if (!opts.keepPassword) roomPasswordInput.value = myRoomPassword || '';
+  renderFreqRooms();
 
   if (errorMsg) {
     nicknameError.textContent = errorMsg;
@@ -191,6 +192,77 @@ function checkLastRoom(pw) {
     }
   });
 }
+// ---------- 經常造訪的房間：記在這個瀏覽器裡，進房畫面點一下就能直接進去 ----------
+const ROOM_HIST_KEY = 'msctimer_room_history';
+let visitCountedFor = '';
+const ROOM_HIST_MAX = 10;
+const ROOM_HIST_SHOW = 3;
+function loadRoomHistory() {
+  let list = [];
+  try { list = JSON.parse(storageGet(ROOM_HIST_KEY) || '[]'); } catch (e) { list = []; }
+  if (!Array.isArray(list)) list = [];
+  list = list.filter((r) => r && /^[A-Za-z0-9]{6}$/.test(r.pw));
+  // 第一次使用：把「上次的房間」當成第一筆
+  if (!list.length) { const last = storageGet(ROOM_KEY); if (last && /^[A-Za-z0-9]{6}$/.test(last)) list.push({ pw: last, n: 1, last: Date.now() }); }
+  return list;
+}
+function saveRoomHistory(list) {
+  list.sort((a, b) => (b.n - a.n) || (b.last - a.last));
+  storageSet(ROOM_HIST_KEY, JSON.stringify(list.slice(0, ROOM_HIST_MAX)));
+}
+function recordRoomVisit(pw) {
+  if (!/^[A-Za-z0-9]{6}$/.test(pw || '')) return;
+  const list = loadRoomHistory();
+  const e = list.find((r) => r.pw === pw);
+  if (e) { e.n++; e.last = Date.now(); } else list.push({ pw, n: 1, last: Date.now() });
+  saveRoomHistory(list);
+}
+function renderFreqRooms() {
+  const box = document.getElementById('freqRooms');
+  if (!box) return;
+  const list = loadRoomHistory().sort((a, b) => (b.n - a.n) || (b.last - a.last)).slice(0, ROOM_HIST_SHOW);
+  box.innerHTML = '';
+  box.classList.toggle('hidden', list.length === 0);
+  if (!list.length) return;
+  const masked = roomPasswordInput.classList.contains('pw-masked');
+  const title = document.createElement('div');
+  title.className = 'freq-rooms-title';
+  title.textContent = '🚪 經常造訪的房間（點一下直接進入）';
+  box.appendChild(title);
+  const row = document.createElement('div');
+  row.className = 'freq-rooms-row';
+  list.forEach((r) => {
+    const chip = document.createElement('span');
+    chip.className = 'freq-room';
+    const go = document.createElement('button');
+    go.type = 'button';
+    go.className = 'freq-room-go';
+    go.title = `進入房間 ${masked ? r.pw.slice(0, 2) + '••••' : r.pw}（造訪 ${r.n} 次）`;
+    const code = document.createElement('b');
+    code.textContent = masked ? r.pw.slice(0, 2) + '••••' : r.pw;
+    const cnt = document.createElement('small');
+    cnt.textContent = `${r.n} 次`;
+    go.append(code, cnt);
+    go.addEventListener('click', () => {
+      roomPasswordInput.value = r.pw;
+      setLastRoomHint('');
+      submitNickname();
+    });
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'freq-room-del';
+    del.textContent = '×';
+    del.title = '從清單移除';
+    del.addEventListener('click', () => {
+      saveRoomHistory(loadRoomHistory().filter((x) => x.pw !== r.pw));
+      renderFreqRooms();
+    });
+    chip.append(go, del);
+    row.appendChild(chip);
+  });
+  box.appendChild(row);
+}
+
 function hideNicknameOverlay() {
   nicknameOverlay.classList.add('hidden');
   setLastRoomHint('');
@@ -263,10 +335,65 @@ togglePasswordBtn.addEventListener('click', () => {
   const show = roomPasswordInput.classList.contains('pw-masked');
   roomPasswordInput.classList.toggle('pw-masked', !show);
   togglePasswordBtn.textContent = show ? '隱藏' : '顯示';
+  renderFreqRooms(); // 經常造訪的房間跟著顯示 / 遮住密碼
+});
+
+// ---------- 贊助者「彩框暱稱」 ----------
+let vipSet = new Set(); // 本月贊助者暱稱（小寫）
+function isVipName(name) { return !!name && vipSet.has(String(name).toLowerCase()); }
+// 回傳要放進畫面的暱稱節點：贊助者 → 金色星星＋彩色外框；一般人 → 純文字
+function nameNode(doc, name) {
+  const d = doc || document;
+  if (!isVipName(name)) return d.createTextNode(name);
+  const s = d.createElement('span');
+  s.className = 'vip-name';
+  s.title = '⭐ 本月贊助者';
+  const star = d.createElement('span');
+  star.className = 'vip-star';
+  star.textContent = '★';
+  s.append(star, d.createTextNode(name));
+  return s;
+}
+// 把「前綴＋暱稱」放進元素（內容沒變就不重畫，避免每秒重建）
+function setNameInto(el, prefix, name) {
+  const key = name ? prefix + '|' + name + '|' + (isVipName(name) ? 1 : 0) : '';
+  if (el._nameKey === key) return;
+  el._nameKey = key;
+  el.textContent = '';
+  if (!name) return;
+  if (prefix) el.appendChild(el.ownerDocument.createTextNode(prefix));
+  el.appendChild(nameNode(el.ownerDocument, name));
+}
+// ---------- 本月贊助目標進度條 ----------
+socket.on('donate:goal', (g) => {
+  if (!g || !g.goal) return;
+  const pct = Math.max(0, Math.round(g.total / g.goal * 100));
+  const w = Math.min(100, pct) + '%';
+  const bar = document.getElementById('donateBtnBar');
+  if (bar) bar.style.width = w;
+  const btn = document.getElementById('donateBtn');
+  if (btn) btn.title = `贊助作者、查看本月贊助榜｜本月網站維護目標 NT$${g.goal.toLocaleString()}，目前 ${pct}%`;
+  const box = document.getElementById('donateGoal');
+  if (!box) return;
+  box.classList.remove('hidden');
+  box.classList.toggle('done', pct >= 100);
+  document.getElementById('donateGoalNums').textContent = `NT$ ${g.total.toLocaleString()} / ${g.goal.toLocaleString()}（${pct}%）`;
+  document.getElementById('donateGoalFill').style.width = w;
+  document.getElementById('donateGoalSub').textContent = pct >= 100
+    ? '🎉 本月目標達成了！謝謝每一位贊助的大大 💖'
+    : `伺服器、網址與 token 費用，還差 NT$ ${(g.goal - g.total).toLocaleString()}，謝謝每一位贊助的大大 💖`;
+});
+socket.on('vip:names', (list) => {
+  vipSet = new Set((Array.isArray(list) ? list : []).map((n) => String(n).toLowerCase()));
+  try { updateNicknameDisplay(); } catch (e) { /* ignore */ }
+  try { renderOnlineUsersBar(); } catch (e) { /* ignore */ }
+  try { renderStatusPanel(); } catch (e) { /* ignore */ }
+  try { renderRoomBoost(); } catch (e) { /* ignore */ }
 });
 
 function updateNicknameDisplay() {
-  myNicknameDisplay.textContent = myNickname ? `👤 ${myNickname}` : '';
+  myNicknameDisplay.textContent = myNickname ? '👤 ' : '';
+  if (myNickname) myNicknameDisplay.appendChild(nameNode(document, myNickname));
   if (myNickname && amCaptain && joined) myNicknameDisplay.appendChild(captainIcon());
   myNicknameDisplay.title = myNickname ? `您的暱稱：${myNickname}${amCaptain && joined ? '（隊長）' : ''}` : '';
 }
@@ -307,6 +434,8 @@ socket.on('join:ack', ({ nickname, created, captain }) => {
     if (myRoomPassword && roomNicks[myRoomPassword]) { delete roomNicks[myRoomPassword]; saveRoomNicks(); }
   }
   if (myRoomPassword) storageSet(ROOM_KEY, myRoomPassword);
+  // 每次打開網頁、或換到另一間房間時記一次（斷線自動重連不重複計算）
+  if (myRoomPassword && visitCountedFor !== myRoomPassword) { recordRoomVisit(myRoomPassword); visitCountedFor = myRoomPassword; }
   renderOnlineUsersBar();
   updateNicknameDisplay();
   updateRoomDisplay();
@@ -415,18 +544,34 @@ function showToast(msg, d) {
 // ---------- 贊助者專屬（新增自訂王、炫耀、霓虹介面） ----------
 let mePerks = { supporter: false };
 function isSupporterMe() { return !!mePerks.supporter; }
-const THEME_KEY = 'msctimer_theme';
+const THEME_KEY_OLD = 'msctimer_theme';
+const THEME_KEY = 'msctimer_theme_v2'; // 萬聖節活動換新的 key：所有人（包含之前選過預設的人）一進來都先看到萬聖節
+// ===== 介面活動設定（活動結束時改這兩行就好）=====
+// HALLOWEEN_FREE：true = 萬聖節介面所有人都能用；false = 變成贊助者專屬
+// DEFAULT_THEME：沒選過介面的人一進來看到的介面
+const HALLOWEEN_FREE = true;
+const DEFAULT_THEME = 'halloween';
 // pipWindow 在檔案後面才宣告（let），這裡用 try 包起來避免載入時就存取到而出錯
 function getPipWin() { try { return pipWindow; } catch (e) { return null; } }
-const THEMES = ['default', 'neon', 'snow'];
+const THEMES = ['default', 'halloween', 'neon', 'snow', 'retro'];
+function isFreeTheme(t) { return t === 'default' || (t === 'halloween' && HALLOWEEN_FREE); }
 function currentTheme() {
-  const t = storageGet(THEME_KEY);
-  return isSupporterMe() && THEMES.includes(t) ? t : 'default';
+  let t = storageGet(THEME_KEY);
+  if (!t) {
+    // 贊助者之前選的霓虹／雪原保留；其他人一律先用預設的活動介面
+    const old = storageGet(THEME_KEY_OLD);
+    t = (old === 'neon' || old === 'snow' || old === 'retro') ? old : DEFAULT_THEME;
+  }
+  if (!THEMES.includes(t)) t = DEFAULT_THEME;
+  if (isFreeTheme(t) || isSupporterMe()) return t;
+  return isFreeTheme(DEFAULT_THEME) ? DEFAULT_THEME : 'default';
 }
 function setThemeClass(root, t) {
   if (!root) return;
   root.classList.toggle('theme-neon', t === 'neon');
   root.classList.toggle('theme-snow', t === 'snow');
+  root.classList.toggle('theme-halloween', t === 'halloween');
+  root.classList.toggle('theme-retro', t === 'retro');
 }
 function applyTheme() {
   const t = currentTheme();
@@ -435,11 +580,14 @@ function applyTheme() {
   if (pw && pw.document) setThemeClass(pw.document.documentElement, t);
   document.querySelectorAll('.theme-opt').forEach((b) => {
     b.classList.toggle('active', b.dataset.theme === t);
-    b.classList.toggle('locked', b.dataset.theme !== 'default' && !isSupporterMe());
+    b.classList.toggle('locked', !isFreeTheme(b.dataset.theme) && !isSupporterMe());
+    const free = b.querySelector('.theme-free');
+    if (free) free.style.display = isFreeTheme(b.dataset.theme) && b.dataset.theme !== 'default' ? '' : 'none';
   });
 }
 function applyPerksUI() {
   addTabBtn.classList.toggle('perk-locked', !isSupporterMe());
+  try { renderRoomBoost(); } catch (e) { /* ignore */ }
   addTabBtn.title = isSupporterMe() ? '新增自訂王（贊助者專屬）' : '⭐ 新增自訂王：贊助者專屬功能';
   applyTheme();
   // 出現中「📦 戰利品」清單上的炫耀按鈕
@@ -460,7 +608,7 @@ socket.on('me:perks', (p) => {
   gotPerks = true;
   mePerks = p || { supporter: false };
   applyPerksUI();
-  if (!first && !was && isSupporterMe()) showToast('⭐ 你已經是贊助者了！可以使用新增自訂王、炫耀、霓虹／雪原介面，感謝支持 ❤️');
+  if (!first && !was && isSupporterMe()) showToast('⭐ 你已經是贊助者了！可以使用所有贊助者專屬功能，感謝支持 ❤️');
 });
 socket.on('perk:denied', (msg) => showToast('⭐ ' + (msg || '贊助者專屬功能')));
 (function setupThemePicker() {
@@ -471,7 +619,7 @@ socket.on('perk:denied', (msg) => showToast('⭐ ' + (msg || '贊助者專屬功
   document.addEventListener('click', (e) => { if (!pop.contains(e.target) && e.target !== tb && !tb.contains(e.target)) pop.classList.add('hidden'); });
   pop.querySelectorAll('.theme-opt').forEach((b) => b.addEventListener('click', () => {
     const t = b.dataset.theme;
-    if (t !== 'default' && !isSupporterMe()) { showToast('⭐ 霓虹、雪原介面是贊助者專屬'); return; }
+    if (!isFreeTheme(t) && !isSupporterMe()) { showToast(t === 'halloween' ? '⭐ 萬聖節介面是贊助者專屬' : '⭐ 霓虹、雪原、復古介面是贊助者專屬'); return; }
     storageSet(THEME_KEY, t);
     applyTheme();
     pop.classList.add('hidden');
@@ -516,7 +664,9 @@ function showBragIn(d, b, left) {
     box.append(t1, ic, nm, t2);
   } else {
     const t1 = d.createElement('span');
-    t1.textContent = `🎉 ${b.name} 擊殺了${b.boss}後，獲得了`;
+    t1.textContent = '🎉 ';
+  t1.appendChild(nameNode(d, b.name));
+  t1.appendChild(d.createTextNode(` 擊殺了${b.boss}後，獲得了`));
     const ic = d.createElement('img');
     ic.src = `drops/icons/${b.itemId}.png`;
     ic.alt = '';
@@ -623,7 +773,7 @@ function renderOnlineUsersBar() {
     const isMutedByMe = amCaptain && captainMutedList.some((n) => n.toLowerCase() === u.name.toLowerCase());
     const span = document.createElement('span');
     span.className = 'online-name' + (isMutedByMe ? ' muted' : '');
-    span.textContent = u.name;
+    span.appendChild(nameNode(document, u.name));
     if (u.captain) span.appendChild(captainIcon());
     if (isMutedByMe) span.appendChild(document.createTextNode('（已禁止）'));
     if (u.captain) span.title = '隊長';
@@ -677,10 +827,51 @@ socket.on('captain:muted', (list) => {
 });
 
 // 「此房間隊長為：XXX」— 隊長不在房間時也會一直顯示
-socket.on('room:info', ({ captainName }) => {
+let roomCapInfo = null; // { cap, base, max, per, boosters }
+socket.on('room:info', ({ captainName, cap, base, max, per, boosters }) => {
   roomCaptainName = captainName || null;
   renderCaptainInfo();
+  if (cap) roomCapInfo = { cap, base, max, per, boosters: Array.isArray(boosters) ? boosters : [] };
+  renderRoomBoost();
 });
+// 房間人數上限：贊助者可以為房間 +2 人（最多 20 人）
+function renderRoomBoost() {
+  const capEl = document.getElementById('roomCapText');
+  if (capEl) capEl.textContent = roomCapInfo && joined ? ` / ${roomCapInfo.cap}` : '';
+  const box = document.getElementById('roomBoostBox');
+  if (!box) return;
+  const r = roomCapInfo;
+  if (!r || !joined) { box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  box.innerHTML = '';
+  const info = document.createElement('div');
+  info.className = 'room-boost-info';
+  info.textContent = `👥 房間人數上限：${r.cap} 人（基本 ${r.base} 人，每位贊助者可 +${r.per}，最多 ${r.max} 人）`;
+  box.appendChild(info);
+  if (r.boosters.length) {
+    const who = document.createElement('div');
+    who.className = 'room-boost-who';
+    who.append('⭐ 提升上限的贊助者：');
+    r.boosters.forEach((n, i) => { if (i) who.append('、'); who.appendChild(nameNode(document, n)); });
+    box.appendChild(who);
+  }
+  const mine = myNickname && r.boosters.some((n) => n.toLowerCase() === myNickname.toLowerCase());
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'room-boost-btn' + (mine ? ' on' : '') + (isSupporterMe() ? '' : ' locked');
+  btn.textContent = mine ? `✅ 我已為房間 +${r.per} 人（按一下取消）` : `⭐ 為這間房間提升上限 +${r.per} 人`;
+  if (!mine && r.cap >= r.max) { btn.disabled = true; btn.textContent = `房間上限已經是最高的 ${r.max} 人`; }
+  btn.title = isSupporterMe() ? '贊助者可以自己決定要不要幫這間房間增加人數上限' : '⭐ 贊助者專屬：每位贊助者可以為房間增加 2 人上限';
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!isSupporterMe()) { showToast('⭐ 提升房間人數上限是贊助者專屬功能'); return; }
+    socket.emit('roomBoost', { on: !mine }, (res) => {
+      if (!res || res.error) { showToast((res && res.error) || '操作失敗'); return; }
+      showToast(mine ? `已取消提升，房間上限 ${res.cap} 人` : `⭐ 已為房間提升上限，目前 ${res.cap} 人`);
+    });
+  });
+  box.appendChild(btn);
+}
 function renderCaptainInfo() {
   const captainInfoEl = document.getElementById('captainInfo');
   if (joined && roomCaptainName) {
@@ -805,8 +996,8 @@ function openExportChooser() {
           <span class="export-choice-title">🔐 匯出密鑰</span>
           <span class="export-choice-desc">加密的匯入碼，可用「📥 匯入計時」匯入到任何房間</span>
         </button>
-        <button class="export-choice" data-kind="table">
-          <span class="export-choice-title">📝 匯出時間表</span>
+        <button class="export-choice${isSupporterMe() ? '' : ' locked'}" data-kind="table">
+          <span class="export-choice-title">📝 匯出時間表${isSupporterMe() ? '' : '<span class="theme-lock">⭐ 贊助者專屬</span>'}</span>
           <span class="export-choice-desc">一目了然的文字時間表，方便貼到 Discord／LINE（只能看，不能匯入）</span>
         </button>
         <div class="modal-buttons"><button class="btn-secondary export-cancel">取消</button></div>
@@ -816,6 +1007,7 @@ function openExportChooser() {
     overlay.querySelector('.export-cancel').addEventListener('click', close);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
     overlay.querySelectorAll('.export-choice').forEach((b) => b.addEventListener('click', () => {
+      if (b.dataset.kind === 'table' && !isSupporterMe()) { showToast('⭐ 匯出時間表是贊助者專屬功能'); return; }
       close();
       if (b.dataset.kind === 'key') exportTimerKey();
       else exportTimerTable();
@@ -1538,7 +1730,7 @@ function updateGridDisplay() {
       if (ch.state === 'idle' || ch.startTime === null) {
         timerEl.textContent = '';
         spawnEl.textContent = '';
-        whoEl.textContent = '';
+        setNameInto(whoEl, '', '');
         return;
       }
 
@@ -1547,7 +1739,7 @@ function updateGridDisplay() {
       const elapsed = now - ch.startTime;
 
       spawnEl.textContent = `🕒${formatClock(ch.startTime + minMs)}`; // 出生時間 = 最小值倒數結束的時刻
-      whoEl.textContent = ch.startedBy ? `👤${ch.startedBy}` : '';
+      setNameInto(whoEl, '👤', ch.startedBy || '');
 
       if (ch.state === 'counting') {
         btn.classList.add('counting');
@@ -1643,8 +1835,8 @@ function renderStatusPanel() {
 // 列表內容（哪些 CH、顏色、王名、暱稱…）沒變時，只更新每一列的時間文字，不重建整個列表；
 // 這樣王的小圖示不會每秒被重新建立（不會閃爍），內容真的變動時才整個重畫。
 function statusSignature(rows, showTabName, emptyText) {
-  return (showTabName ? 'A' : 'B') + '|' + emptyText + '|' + rows.map((r) =>
-    [r.tabId, r.channelIndex, r.who, r.spawnAt, r.tabImage, r.tabName, r.soon ? 1 : 0, r.inWindow ? 1 : 0, r.overdue ? 1 : 0, r.standby || '', r.maxAt || 0].join(',')
+  return (showTabName ? 'A' : 'B') + '|' + emptyText + '|' + vipSet.size + '|' + rows.map((r) =>
+    [r.tabId, r.channelIndex, r.who, isVipName(r.who) ? 1 : 0, r.spawnAt, r.tabImage, r.tabName, r.soon ? 1 : 0, r.inWindow ? 1 : 0, r.overdue ? 1 : 0, r.standby || '', isVipName(r.standby) ? 1 : 0, r.maxAt || 0].join(',')
   ).join(';');
 }
 
@@ -1687,7 +1879,7 @@ function renderStatusColumn(container, rows, emptyText, showTabName) {
 
     const whoSpan = doc.createElement('span');
     whoSpan.className = 'status-who';
-    whoSpan.textContent = `👤${r.who}`;
+    setNameInto(whoSpan, '👤', r.who);
     row.appendChild(whoSpan);
 
     if (r.soon) {
@@ -1729,7 +1921,7 @@ function renderStatusColumn(container, rows, emptyText, showTabName) {
     // 待命：沒人待命時顯示「待命」，按下後變成按的人的暱稱；再按一次變回「待命」
     const standbyBtn = doc.createElement('button');
     standbyBtn.className = 'standby-btn' + (r.standby ? ' taken' : '');
-    standbyBtn.textContent = r.standby || '待命';
+    if (r.standby) standbyBtn.appendChild(nameNode(doc, r.standby)); else standbyBtn.textContent = '待命';
     standbyBtn.title = r.standby ? `「${r.standby}」待命中，再按一次取消` : '按下表示你在這個 CH 待命';
     standbyBtn.addEventListener('click', (e) => {
       e.stopPropagation();

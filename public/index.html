@@ -32,8 +32,8 @@
       <h1><img src="images/logo-64.png?v=2" class="site-logo" alt="" width="30" height="30" />MSCtimer｜楓之谷經典版｜團隊野王計時器</h1>
       <span id="captainInfo" class="captain-info hidden"></span>
       <div id="onlineUsersBar" class="online-users-bar">
-        <button type="button" id="onlineToggle" class="online-toggle" title="點一下查看線上名單">🟢 線上 <span id="onlineCount">0</span> 人 ▾</button>
-        <div id="onlinePop" class="online-pop hidden"><div class="online-pop-title">線上名單</div><span id="onlineNames" class="online-names"></span></div>
+        <button type="button" id="onlineToggle" class="online-toggle" title="點一下查看線上名單">🟢 線上 <span id="onlineCount">0</span><span id="roomCapText"></span> 人 ▾</button>
+        <div id="onlinePop" class="online-pop hidden"><div class="online-pop-title">線上名單</div><span id="onlineNames" class="online-names"></span><div id="roomBoostBox" class="room-boost hidden"></div></div>
       </div>
       <span id="siteOnline" class="site-online hidden" title="目前整個網站在線上的人數（所有房間加總，同一個瀏覽器開多個分頁只算一人）">🌐<span class="so-label"> 全站</span> <b id="siteOnlineCount">0</b><span class="so-label"> 人在線</span></span>
     </div>
@@ -53,19 +53,21 @@
       </div>
       <button id="pipBtn" class="top-btn" title="開啟子母畫面（浮動在最上層的小視窗）">📺<span class="btn-label"> 子母畫面</span></button>
       <div class="sound-wrap theme-wrap">
-        <button id="themeBtn" class="top-btn theme-btn" title="更改介面：預設／霓虹／雪原（霓虹、雪原為贊助者專屬）">🎨<span class="btn-label"> 介面</span></button>
+        <button id="themeBtn" class="top-btn theme-btn" title="更改介面：萬聖節／預設／霓虹／雪原／復古（霓虹、雪原、復古為贊助者專屬）">🎨<span class="btn-label"> 介面</span></button>
         <div id="themePop" class="sound-pop theme-pop hidden">
+          <button type="button" class="theme-opt" data-theme="halloween"><span class="theme-sw sw-halloween"></span>萬聖節<span class="theme-free">🎃 限時</span><span class="theme-lock">⭐ 贊助者</span></button>
           <button type="button" class="theme-opt" data-theme="default"><span class="theme-sw sw-default"></span>預設</button>
           <button type="button" class="theme-opt" data-theme="neon"><span class="theme-sw sw-neon"></span>霓虹<span class="theme-lock">⭐ 贊助者</span></button>
           <button type="button" class="theme-opt" data-theme="snow"><span class="theme-sw sw-snow"></span>雪原<span class="theme-lock">⭐ 贊助者</span></button>
-          <div class="sound-note">霓虹、雪原為贊助者專屬</div>
+          <button type="button" class="theme-opt" data-theme="retro"><span class="theme-sw sw-retro"></span>復古<span class="theme-lock">⭐ 贊助者</span></button>
+          <div class="sound-note">霓虹、雪原、復古為贊助者專屬；🎃 萬聖節限時開放給所有人</div>
         </div>
       </div>
       <span id="roomDisplay" class="room-badge hidden" title="點一下顯示 / 隱藏房間密碼">🔐 房間：<span id="roomPasswordText">••••</span></span>
       <button id="switchRoomBtn" class="top-btn hidden" title="離開目前房間，輸入其他房間密碼">換房間</button>
       <span id="myNicknameDisplay" class="my-nickname"></span>
       <div id="connStatus" class="conn-status">連線中...</div>
-      <button id="donateBtn" class="top-btn donate-btn" title="贊助作者、查看本月贊助榜">💖 贊助</button>
+      <button id="donateBtn" class="top-btn donate-btn" title="贊助作者、查看本月贊助榜">💖 贊助<span class="donate-btn-bar" aria-hidden="true"><i id="donateBtnBar"></i></span></button>
       <button id="guideBtn" class="top-btn guide-btn" title="使用指南：這個網站可以做什麼、怎麼用">📖 指南</button>
       <button id="contactBtn" class="top-btn contact-top-btn" title="聯絡作者" aria-label="聯絡作者">✉️</button>
     </div>
@@ -170,7 +172,8 @@
       <button type="button" id="togglePasswordBtn" class="btn-secondary password-toggle" title="顯示 / 隱藏密碼">顯示</button>
       <button type="button" id="randomPasswordBtn" class="btn-secondary password-toggle" title="產生一組隨機、沒人用過的房間密碼（建立新房間用）">🎲 隨機</button>
     </div>
-    <p class="modal-note join-hint">密碼為 <b>6 個字元</b>，只能用英文大小寫或數字（大小寫不同視為不同密碼）。<br />輸入相同密碼的人會進到同一個房間、共用同一組計時器（每間最多 10 人）；輸入新的密碼就會建立新房間，建立的人就是隊長。建議不要用 123456、aaaaaa 這類太好猜的密碼。</p>
+    <div id="freqRooms" class="freq-rooms hidden"></div>
+    <p class="modal-note join-hint">密碼為 <b>6 個字元</b>，只能用英文大小寫或數字（大小寫不同視為不同密碼）。<br />輸入相同密碼的人會進到同一個房間、共用同一組計時器（每間基本 10 人，贊助者可以提升到最多 20 人）；輸入新的密碼就會建立新房間，建立的人就是隊長。建議不要用 123456、aaaaaa 這類太好猜的密碼。</p>
 
     <div id="lastRoomHint" class="last-room-hint hidden"></div>
     <div id="nicknameError" class="nickname-error hidden"></div>
@@ -189,6 +192,11 @@
       <button type="button" id="donateCloseBtn" class="btn-secondary">關閉</button>
     </div>
     <div class="guide-body">
+      <div id="donateGoal" class="donate-goal hidden">
+        <div class="donate-goal-text"><span>🎯 本月網站維護目標</span><b id="donateGoalNums"></b></div>
+        <div class="donate-goal-bar"><i id="donateGoalFill"></i></div>
+        <div class="donate-goal-sub" id="donateGoalSub"></div>
+      </div>
       <div class="donate-board-head donate-board-top">
         <h4>🏆 贊助榜</h4>
         <select id="donateMonthSel" title="選擇月份"></select>
@@ -196,7 +204,7 @@
       <p class="donate-sub">每個月重新計算，同一個暱稱當月的贊助金額會加總，金額最高的排在最上面。</p>
       <div id="donateBoard" class="donate-board"></div>
       <p class="donate-msg">每個月都要花很多 token 跟伺服器維護費用……<br />如果大大們有打到好寶物，或是有餘力的話，也可以請作者喝杯奶茶，感激不盡 &gt;&lt;</p>
-      <div class="donate-perks"><b>⭐ 當月贊助滿 NT$50，成為本月贊助者：</b>＋ 新增自訂王 ／ 炫耀戰利品（全站通知）／ 🎨 霓虹、雪原介面 ／ 📊 掉落機率。<br /><small>贊助者身分只在當月有效，下個月 1 號重置。以贊助時填寫的暱稱為準（匿名贊助也可以填暱稱，暱稱不會公開，一樣能開通福利）。暱稱只屬於第一次使用它的瀏覽器，請不要換瀏覽器或清除瀏覽器資料。</small></div>
+      <div class="donate-perks"><b>⭐ 當月贊助滿 NT$50，成為本月贊助者：</b>＋ 新增自訂王 ／ 炫耀戰利品（全站通知）／ 🎨 霓虹、雪原、復古介面 ／ 📊 掉落機率 ／ ⭐ 彩框暱稱 ／ 👥 房間人數上限 +2。<br /><small>贊助者身分只在當月有效，下個月 1 號重置。以贊助時填寫的暱稱為準（匿名贊助也可以填暱稱，暱稱不會公開，一樣能開通福利）。暱稱只屬於第一次使用它的瀏覽器，請不要換瀏覽器或清除瀏覽器資料。</small></div>
       <h4 class="donate-step">① 想上贊助榜？先填寫（也可以匿名）</h4>
       <div class="donate-form">
         <label>暱稱<input type="text" id="donName" maxlength="20" placeholder="要顯示在贊助榜上的名字" autocomplete="off" /></label>
@@ -234,6 +242,40 @@
       <button type="button" id="changelogCloseBtn" class="btn-secondary">關閉</button>
     </div>
     <div class="guide-body changelog-body" id="changelogBody">
+      <section class="cl-entry" data-id="2026-10-29-6">
+        <h4>2026/10/29 第六次更新</h4>
+        <ul>
+          <li>新增 ⭐ 贊助者專屬「復古」介面：藍色標題列、米色視窗、亮面按鈕，滿滿 2000 年代桌面程式的懷舊感。在右上角「🎨 介面」切換。</li>
+        </ul>
+      </section>
+      <section class="cl-entry" data-id="2026-10-29-5">
+        <h4>2026/10/29 第五次更新</h4>
+        <ul>
+          <li>新增「👥 提升房間人數上限」（⭐ 贊助者專屬）：房間基本上限 10 人，房間裡每位贊助者可以自己決定要不要幫房間 +2 人，最多到 20 人。在「🟢 線上」名單裡就能設定。</li>
+        </ul>
+      </section>
+      <section class="cl-entry" data-id="2026-10-29-4">
+        <h4>2026/10/29 第四次更新</h4>
+        <ul>
+          <li>新增「🚪 經常造訪的房間」：進房畫面會列出你最常去的 3 個房間，點一下就能直接進入（只記在你自己的瀏覽器裡，可以按 × 移除）。</li>
+          <li>「📝 匯出時間表」改為 ⭐ 贊助者專屬（一樣只有隊長能用）；「🔐 匯出密鑰」所有隊長都能照常使用。</li>
+        </ul>
+      </section>
+      <section class="cl-entry" data-id="2026-10-29-3">
+        <h4>2026/10/29 第三次更新</h4>
+        <ul>
+          <li>🎃 萬聖節介面登場！期間限定開放給所有人使用：夜空月光、飛過的蝙蝠、南瓜橘的計時格子。</li>
+          <li>想換回原本的樣子，點右上角「🎨 介面」選「預設」就可以了。</li>
+        </ul>
+      </section>
+      <section class="cl-entry" data-id="2026-10-29-2">
+        <h4>2026/10/29 第二次更新</h4>
+        <ul>
+          <li>新增「🎯 本月網站維護目標」進度條：在「💖 贊助」裡可以看到這個月大家一起贊助到多少了，「💖 贊助」按鈕下方也有小小的進度條。</li>
+          <li>新增贊助者專屬「⭐ 彩框暱稱」：本月贊助者的暱稱前面會有金色星星、外圍有彩色框，在線上名單、頻道、待命等地方都看得到。</li>
+          <li>修正：重新部署時，計時有時會「回溯」到幾分鐘前的狀態。</li>
+        </ul>
+      </section>
       <section class="cl-entry" data-id="2026-10-29">
         <h4>2026/10/29</h4>
         <ul>
@@ -302,7 +344,7 @@
       <ol>
         <li><b>取暱稱</b>：<span class="guide-warn">暱稱只能取一次，取後無法更改。</span>如要更改請寄信給作者。</li>
         <li><b>輸入 6 碼房間密碼</b>（英文或數字，大小寫有分）。輸入新密碼就是開新房間，開房的人就是隊長；按「🎲 隨機」可以產生一組沒人用過的密碼。</li>
-        <li><b>把密碼分享給隊友</b>，輸入同一組密碼就會進到同一間房間（每間最多 10 人）。</li>
+        <li><b>把密碼分享給隊友</b>，輸入同一組密碼就會進到同一間房間（每間基本 10 人，贊助者可以提升到最多 20 人）。</li>
       </ol>
 
       <h4>⏱ 計時器怎麼按</h4>
@@ -340,7 +382,7 @@
 
       <h4>👑 隊長專屬</h4>
       <ul>
-        <li><b>📋 匯出 / 📥 匯入</b>：把目前所有計時匯出成一組密鑰，換房間或隔天再匯入；也可以匯出文字版時間表。</li>
+        <li><b>📋 匯出 / 📥 匯入</b>：把目前所有計時匯出成一組密鑰，換房間或隔天再匯入（隊長才能使用）；匯出文字版時間表是 ⭐ 贊助者專屬。</li>
         <li><b>線上名單</b>：點「🟢 線上 N 人」打開名單。🚫 禁止操作：對方不能按任何東西，也看不到計時器。🚪 移出：請對方離開房間（之後還能用同一個暱稱再進來）。</li>
       </ul>
 
@@ -348,7 +390,9 @@
       <ul>
         <li><b>＋ 新增自訂王</b>：在王的分頁旁按「＋」新增自己的分頁，自訂最小值 / 最大值。</li>
         <li><b>炫耀</b>：在「🌟 出現中」的「📦 戰利品」紀錄裡按 📣，全站都會跳出「XX 擊殺了 XX 後，獲得了 XXX！大家一起恭喜他！」。一件戰利品只能炫耀一次，每人每天最多 5 次。</li>
-        <li><b>🎨 更換介面</b>：右上角「🎨 介面」可以切換成霓虹或雪原介面。</li>
+        <li><b>🎨 更換介面</b>：右上角「🎨 介面」可以切換成霓虹、雪原或復古介面。</li>
+        <li><b>👥 提升房間人數上限</b>：在房間裡打開「🟢 線上」名單，按「⭐ 為這間房間提升上限」，每位贊助者可以讓房間多 2 人（最多 20 人），也可以隨時取消。</li>
+        <li><b>⭐ 彩框暱稱</b>：線上名單、頻道、待命等顯示暱稱的地方，名字前面會有金色星星、外圍有彩色框，大家都看得到。</li>
         <li><b>📊 掉落機率</b>：王的「📦 戰利品」目錄裡，裝備、卷軸、飛鏢、膠囊會顯示全站的歷史與本週掉落機率。</li>
       </ul>
 
